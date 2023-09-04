@@ -33,7 +33,10 @@ import androidx.core.graphics.red
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.core.widget.doOnTextChanged
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStoreOwner
 import androidx.preference.PreferenceManager
+import com.antonydp.ottSyncApi.SyncEvent
 import com.lagradost.cloudstream3.AcraApplication.Companion.getKey
 import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
 import com.lagradost.cloudstream3.CommonActivity.keyEventListener
@@ -47,6 +50,7 @@ import com.lagradost.cloudstream3.ui.player.source_priority.QualityDataHelper
 import com.lagradost.cloudstream3.ui.result.setText
 import com.lagradost.cloudstream3.ui.result.txt
 import com.lagradost.cloudstream3.utils.AppUtils.isUsingMobileData
+import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showDialog
 import com.lagradost.cloudstream3.utils.UIHelper.colorFromAttribute
 import com.lagradost.cloudstream3.utils.UIHelper.dismissSafe
@@ -57,6 +61,10 @@ import com.lagradost.cloudstream3.utils.UIHelper.popCurrentPage
 import com.lagradost.cloudstream3.utils.UIHelper.showSystemUI
 import com.lagradost.cloudstream3.utils.UIHelper.toPx
 import com.lagradost.cloudstream3.utils.Vector2
+import com.lagradost.cloudstream3.utils.WatchTogetherViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlin.math.*
 
 
@@ -1210,6 +1218,60 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
             subtitleDelay = it
         }
 
+        val watchTogetherViewModel = ViewModelProvider(context as ViewModelStoreOwner)[WatchTogetherViewModel::class.java]
+
+        CoroutineScope(Dispatchers.Main).launch  {
+            watchTogetherViewModel.syncMessageFlow.collect { syncEvent ->
+                // Handle the player event here
+                when (syncEvent) {
+                    is SyncEvent.Seek -> {
+                        // Handle Seek event
+                        player.seekTo(syncEvent.playbackPosition.toLong() * 1000)
+                    }
+
+                    is SyncEvent.PlaybackSpeed -> {
+                        // Handle PlaybackSpeed event
+                        setPlayBackSpeed(syncEvent.playbackSpeed.toFloat())
+                    }
+
+                    is SyncEvent.Pause -> {
+                        // Handle Pause event
+                        player.handleEvent(CSPlayerEvent.Pause)
+                    }
+
+                    is SyncEvent.Play -> {
+                        // Handle Play event
+                        player.handleEvent(CSPlayerEvent.Play)
+                    }
+
+                    is SyncEvent.TitleChanged -> {
+                        // Handle TitleChanged event
+                    }
+
+                    is SyncEvent.Message -> {
+                        // Handle Message event
+                    }
+
+                    is SyncEvent.Status -> {
+                        // Handle Status event
+                    }
+
+                    is SyncEvent.SourceUpdated -> {
+                        // Handle SourceUpdated event
+                        player.loadPlayer(
+                            requireContext(),
+                            false,
+                            ExtractorLink("direct", "direct", syncEvent.source.id,"", 0, false),
+                            null,
+                            syncEvent.source.startAt.toDouble().toLong(),
+                            emptySet(),
+                            null,
+                            false
+                            )
+                    }
+                }
+            }
+        }
         // handle tv controls
         playerEventListener = { eventType ->
             when (eventType) {

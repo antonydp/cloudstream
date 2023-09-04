@@ -230,7 +230,7 @@ dependencies {
     // implementation("com.squareup.okhttp3:okhttp:4.9.2")
     // implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.9.1")
     implementation("com.github.Blatzar:NiceHttp:0.4.3")
-    implementation("com.github.antonydp:OTTSyncApi:0.1.4")
+    implementation("com.github.antonydp:OTTSyncApi:0.1.7")
     // To fix SSL fuckery on android 9
     implementation("org.conscrypt:conscrypt-android:2.2.1")
     // Util to skip the URI file fuckery 🙏

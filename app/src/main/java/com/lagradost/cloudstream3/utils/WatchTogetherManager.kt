@@ -30,6 +30,7 @@ import com.lagradost.cloudstream3.databinding.WatchTogetherManagerBinding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
 class WatchTogetherViewModel : ViewModel() {
@@ -40,16 +41,19 @@ class WatchTogetherViewModel : ViewModel() {
     var roomId: String = ""
     lateinit var roomSyncLibrary: RoomSyncLibrary
     var connectedSocket: Boolean = false
+    lateinit var syncMessageFlow: Flow<SyncEvent>
+
 }
 fun showWatchTogether(context: Context) {
 
-    val viewModel = ViewModelProvider(context as ViewModelStoreOwner)[WatchTogetherViewModel::class.java]
+    val viewModel = ViewModelProvider(context as ViewModelStoreOwner).get(WatchTogetherViewModel::class.java)
     if (viewModel.isManagerShowing) {
         // The manager is already showing, no need to show it again.
         return
     }
      if (!viewModel.connectedSocket) run {
          viewModel.roomSyncLibrary = RoomSyncLibrary(app.baseClient)
+         viewModel.syncMessageFlow = viewModel.roomSyncLibrary.syncMessageFlow
      }
     // Collect sync events using Flow
     GlobalScope.launch {
@@ -124,8 +128,8 @@ fun showWatchTogether(context: Context) {
 
     binding.watchTogheterJoinButton.setOnClickListener {
         viewModel.roomId = binding.roomIdEditText.text.toString()
-        joinRoom(context, viewModel.roomSyncLibrary, userAdapter, viewModel.roomId)
         viewModel.connectedSocket = true
+        joinRoom(context, viewModel.roomSyncLibrary, userAdapter, viewModel.roomId)
 
         loginVisibilities(binding)
         binding.roomIDTextView.text = viewModel.roomId
@@ -186,6 +190,9 @@ fun showWatchTogether(context: Context) {
         reloadUsers(viewModel.roomId, viewModel.roomSyncLibrary, userAdapter, context)
     }
 
+    binding.playerStart.setOnClickListener {
+
+    }
     builder.show()
 }
 

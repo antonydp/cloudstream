@@ -25,9 +25,14 @@
             android:orientation="horizontal">
 
         </androidx.viewpager2.widget.ViewPager2>
-
         <LinearLayout
             android:id="@+id/home_padding"
+            android:layout_width="match_parent"
+            android:layout_height="100dp"
+            android:gravity="center"
+            android:orientation="vertical">
+            <LinearLayout
+            android:id="@+id/home_padding_2"
             android:layout_width="match_parent"
             android:layout_height="50dp"
             android:gravity="center"
@@ -67,7 +72,16 @@
                 android:padding="10dp"
                 android:src="@drawable/ic_outline_account_circle_24" />
         </LinearLayout>
-
+            <ImageView
+                android:id="@+id/home_watch_togheter"
+                android:layout_width="50dp"
+                android:layout_height="match_parent"
+                android:layout_gravity="end"
+                android:contentDescription=""
+                android:visibility="visible"
+                android:padding="10dp"
+                android:src="@drawable/outline_groups_24" />
+        </LinearLayout>
         <!--
                         <TextView
                             android:visibility="gone"

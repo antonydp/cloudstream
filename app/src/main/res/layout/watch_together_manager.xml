@@ -137,8 +137,15 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textSize="20dp"
-                android:text=""
+                android:text="Room ID"
                 android:textIsSelectable="true" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/playerStart"
+                style="@style/WhiteButton"
+                android:layout_width="fill_parent"
+                android:layout_height="match_parent"
+                android:text="start the player"
+                app:icon="@drawable/play_to_pause" />
             <FrameLayout
                 xmlns:android="http://schemas.android.com/apk/res/android"
                 android:layout_width="match_parent"
@@ -147,6 +154,8 @@
                 <!-- RecyclerView -->
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/userRecyclerView"
+                    android:paddingTop="15dp"
+                    android:paddingRight="10dp"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
                     tools:listitem="@layout/watch_together_user_item"
