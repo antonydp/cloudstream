@@ -25,6 +25,7 @@ import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.databinding.FragmentHomeHeadBinding
 import com.lagradost.cloudstream3.databinding.FragmentHomeHeadTvBinding
+import com.lagradost.cloudstream3.databinding.WatchTogetherManagerBinding
 import com.lagradost.cloudstream3.mvvm.Resource
 import com.lagradost.cloudstream3.mvvm.debugException
 import com.lagradost.cloudstream3.mvvm.observe
@@ -45,6 +46,7 @@ import com.lagradost.cloudstream3.utils.UIHelper.fixPaddingStatusbar
 import com.lagradost.cloudstream3.utils.UIHelper.fixPaddingStatusbarMargin
 import com.lagradost.cloudstream3.utils.UIHelper.fixPaddingStatusbarView
 import com.lagradost.cloudstream3.utils.UIHelper.setImage
+import com.lagradost.cloudstream3.utils.showWatchTogether
 
 class HomeParentItemAdapterPreview(
     items: MutableList<HomeViewModel.ExpandableHomepageList>,
@@ -256,6 +258,9 @@ class HomeParentItemAdapterPreview(
         private var homeAccount: View? =
             itemView.findViewById(R.id.home_switch_account)
 
+        private var watchTogheter: View? =
+            itemView.findViewById(R.id.home_watch_togheter)
+
         private var topPadding : View? = itemView.findViewById(R.id.home_padding)
 
         private val homeNonePadding: View = itemView.findViewById(R.id.home_none_padding)
@@ -460,6 +465,11 @@ class HomeParentItemAdapterPreview(
 
             homeAccount?.setOnClickListener { v ->
                 DataStoreHelper.showWhoIsWatching(v?.context ?: return@setOnClickListener)
+            }
+
+            watchTogheter?.setOnClickListener { v ->
+                showWatchTogether(v?.context ?: return@setOnClickListener)
+
             }
 
             (binding as? FragmentHomeHeadTvBinding)?.apply {
