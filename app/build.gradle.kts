@@ -1,3 +1,4 @@
+import com.android.build.gradle.internal.cxx.configure.gradleLocalProperties
 import org.jetbrains.dokka.gradle.DokkaTask
 import java.io.ByteArrayOutputStream
 import java.net.URL
@@ -31,6 +32,13 @@ android {
         enable = true
     }
 
+    // disable this for now
+    //externalNativeBuild {
+    //    cmake {
+    //        path("CMakeLists.txt")
+    //    }
+    //}
+
     signingConfigs {
         create("prerelease") {
             if (prereleaseStoreFile != null) {
@@ -48,23 +56,33 @@ android {
     defaultConfig {
         applicationId = "com.lagradost.cloudstream3"
         minSdk = 21
-        targetSdk = 33
+        targetSdk = 29
 
         versionCode = 59
-        versionName = "4.1.2"
+        versionName = "4.1.8"
 
         resValue("string", "app_version", "${defaultConfig.versionName}${versionNameSuffix ?: ""}")
-
         resValue("string", "commit_hash", "git rev-parse --short HEAD".execute() ?: "")
-
         resValue("bool", "is_prerelease", "false")
+
+        // Reads local.properties
+        val localProperties = gradleLocalProperties(rootDir)
 
         buildConfigField(
             "String",
             "BUILDDATE",
             "new java.text.SimpleDateFormat(\"yyyy-MM-dd HH:mm\").format(new java.util.Date(" + System.currentTimeMillis() + "L));"
         )
-
+        buildConfigField(
+            "String",
+            "SIMKL_CLIENT_ID",
+            "\"" + (System.getenv("SIMKL_CLIENT_ID") ?: localProperties["simkl.id"]) + "\""
+        )
+        buildConfigField(
+            "String",
+            "SIMKL_CLIENT_SECRET",
+            "\"" + (System.getenv("SIMKL_CLIENT_SECRET") ?: localProperties["simkl.secret"]) + "\""
+        )
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         kapt {
@@ -108,9 +126,9 @@ android {
         }
     }
     //toolchain {
-   //     languageVersion.set(JavaLanguageVersion.of(17))
-   // }
-   // jvmToolchain(17)
+    //     languageVersion.set(JavaLanguageVersion.of(17))
+    // }
+    // jvmToolchain(17)
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
@@ -154,7 +172,7 @@ dependencies {
     androidTestImplementation("androidx.test:core")
 
     //implementation("io.karn:khttp-android:0.1.2") //okhttp instead
-//    implementation("org.jsoup:jsoup:1.13.1")
+    // implementation("org.jsoup:jsoup:1.13.1")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.1")
 
     implementation("androidx.preference:preference-ktx:1.2.0")
@@ -170,22 +188,22 @@ dependencies {
     // implementation("androidx.leanback:leanback-paging:1.1.0-alpha09")
 
     // Media 3
-    implementation("androidx.media3:media3-common:1.1.0")
-    implementation("androidx.media3:media3-exoplayer:1.1.0")
-    implementation("androidx.media3:media3-datasource-okhttp:1.1.0")
-    implementation("androidx.media3:media3-ui:1.1.0")
-    implementation("androidx.media3:media3-session:1.1.0")
-    implementation("androidx.media3:media3-cast:1.1.0")
-    implementation("androidx.media3:media3-exoplayer-hls:1.1.0")
-    implementation("androidx.media3:media3-exoplayer-dash:1.1.0")
+    implementation("androidx.media3:media3-common:1.1.1")
+    implementation("androidx.media3:media3-exoplayer:1.1.1")
+    implementation("androidx.media3:media3-datasource-okhttp:1.1.1")
+    implementation("androidx.media3:media3-ui:1.1.1")
+    implementation("androidx.media3:media3-session:1.1.1")
+    implementation("androidx.media3:media3-cast:1.1.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.1.1")
+    implementation("androidx.media3:media3-exoplayer-dash:1.1.1")
     // Custom ffmpeg extension for audio codecs
     implementation("com.github.recloudstream:media-ffmpeg:1.1.0")
 
     //implementation("com.google.android.exoplayer:extension-leanback:2.14.0")
 
     // Bug reports
-    implementation("ch.acra:acra-core:5.8.4")
-    implementation("ch.acra:acra-toast:5.8.4")
+    implementation("ch.acra:acra-core:5.11.0")
+    implementation("ch.acra:acra-toast:5.11.0")
 
     compileOnly("com.google.auto.service:auto-service-annotations:1.0")
     //either for java sources:
@@ -209,19 +227,19 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.8.1")
 
     // Networking
-//    implementation("com.squareup.okhttp3:okhttp:4.9.2")
-//    implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.9.1")
-    implementation("com.github.Blatzar:NiceHttp:0.4.2")
+    // implementation("com.squareup.okhttp3:okhttp:4.9.2")
+    // implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.9.1")
+    implementation("com.github.Blatzar:NiceHttp:0.4.3")
     implementation("com.github.antonydp:OTTSyncApi:0.1.4")
     // To fix SSL fuckery on android 9
     implementation("org.conscrypt:conscrypt-android:2.2.1")
     // Util to skip the URI file fuckery 🙏
-    implementation("com.github.tachiyomiorg:unifile:17bec43")
+    implementation("com.github.LagradOst:SafeFile:0.0.5")
 
     // API because cba maintaining it myself
     implementation("com.uwetrottmann.tmdb2:tmdb-java:2.6.0")
 
-    implementation("com.github.discord:OverlappingPanels:0.1.3")
+    implementation("com.github.discord:OverlappingPanels:0.1.5")
     // debugImplementation because LeakCanary should only run in debug builds.
     //debugImplementation("com.squareup.leakcanary:leakcanary-android:2.12")
 
@@ -233,11 +251,9 @@ dependencies {
     // used for subtitle decoding https://github.com/albfernandez/juniversalchardet
     implementation("com.github.albfernandez:juniversalchardet:2.4.0")
 
-    // slow af yt
-    //implementation("com.github.HaarigerHarald:android-youtubeExtractor:master-SNAPSHOT")
-
     // newpipe yt taken from https://github.com/TeamNewPipe/NewPipe/blob/dev/app/build.gradle#L204
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:8495ad619e")
+    // this should be updated frequently to avoid trailer fu*kery
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:1f08d28")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:1.1.6")
 
     // Library/extensions searching with Levenshtein distance

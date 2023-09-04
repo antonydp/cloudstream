@@ -3,7 +3,6 @@ package com.lagradost.cloudstream3.ui.home
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.FrameLayout
 import androidx.appcompat.widget.SearchView
 import androidx.core.content.ContextCompat
 import androidx.core.view.isGone
@@ -13,7 +12,6 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.viewbinding.ViewBinding
 import androidx.viewpager2.widget.ViewPager2
 import com.google.android.material.chip.Chip
-import com.google.android.material.chip.ChipDrawable
 import com.google.android.material.chip.ChipGroup
 import com.lagradost.cloudstream3.APIHolder.getId
 import com.lagradost.cloudstream3.AcraApplication.Companion.getActivity
@@ -42,10 +40,9 @@ import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.isTvSet
 import com.lagradost.cloudstream3.utils.DataStoreHelper
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showBottomDialog
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showOptionSelectStringRes
-import com.lagradost.cloudstream3.utils.UIHelper.fixPaddingStatusbar
 import com.lagradost.cloudstream3.utils.UIHelper.fixPaddingStatusbarMargin
 import com.lagradost.cloudstream3.utils.UIHelper.fixPaddingStatusbarView
-import com.lagradost.cloudstream3.utils.UIHelper.setImage
+import com.lagradost.cloudstream3.utils.UIHelper.populateChips
 import com.lagradost.cloudstream3.utils.showWatchTogether
 
 class HomeParentItemAdapterPreview(
@@ -247,7 +244,11 @@ class HomeParentItemAdapterPreview(
 
         private val previewViewpager: ViewPager2 =
             itemView.findViewById(R.id.home_preview_viewpager)
-        private val previewHeader: FrameLayout = itemView.findViewById(R.id.home_preview)
+
+        private val previewViewpagerText: ViewGroup =
+            itemView.findViewById(R.id.home_preview_viewpager_text)
+
+        // private val previewHeader: FrameLayout = itemView.findViewById(R.id.home_preview)
         private var resumeHolder: View = itemView.findViewById(R.id.home_watch_holder)
         private var resumeRecyclerView: RecyclerView =
             itemView.findViewById(R.id.home_watch_child_recyclerview)
@@ -256,12 +257,11 @@ class HomeParentItemAdapterPreview(
             itemView.findViewById(R.id.home_bookmarked_child_recyclerview)
 
         private var homeAccount: View? =
-            itemView.findViewById(R.id.home_switch_account)
+            itemView.findViewById(R.id.home_preview_switch_account)
 
+        private var topPadding: View? = itemView.findViewById(R.id.home_padding)
         private var watchTogheter: View? =
             itemView.findViewById(R.id.home_watch_togheter)
-
-        private var topPadding : View? = itemView.findViewById(R.id.home_padding)
 
         private val homeNonePadding: View = itemView.findViewById(R.id.home_none_padding)
 
@@ -287,26 +287,12 @@ class HomeParentItemAdapterPreview(
                     item.plot ?: ""
 
                 homePreviewText.text = item.name
-                homePreviewTags.apply {
-                    removeAllViews()
-                    item.tags?.forEach { tag ->
-                        val chip = Chip(context)
-                        val chipDrawable =
-                            ChipDrawable.createFromAttributes(
-                                context,
-                                null,
-                                0,
-                                R.style.ChipFilledSemiTransparent
-                            )
-                        chip.setChipDrawable(chipDrawable)
-                        chip.text = tag
-                        chip.isChecked = false
-                        chip.isCheckable = false
-                        chip.isFocusable = false
-                        chip.isClickable = false
-                        addView(chip)
-                    }
-                }
+                populateChips(
+                    homePreviewTags,
+                    item.tags ?: emptyList(),
+                    R.style.ChipFilledSemiTransparent
+                )
+
                 homePreviewTags.isGone =
                     item.tags.isNullOrEmpty()
 
@@ -329,7 +315,7 @@ class HomeParentItemAdapterPreview(
 
             }
             (binding as? FragmentHomeHeadBinding)?.apply {
-                homePreviewImage.setImage(item.posterUrl, item.posterHeaders)
+                //homePreviewImage.setImage(item.posterUrl, item.posterHeaders)
 
                 homePreviewPlay.setOnClickListener { view ->
                     viewModel.click(
@@ -407,7 +393,6 @@ class HomeParentItemAdapterPreview(
                 if (binding is FragmentHomeHeadTvBinding) {
                     observe(viewModel.apiName) { name ->
                         binding.homePreviewChangeApi.text = name
-                        binding.homePreviewChangeApi2.text = name
                     }
                 }
                 observe(viewModel.resumeWatching) {
@@ -436,7 +421,7 @@ class HomeParentItemAdapterPreview(
             Pair(itemView.findViewById(R.id.home_plan_to_watch_btt), WatchType.PLANTOWATCH),
         )
 
-        private val toggleListHolder : ChipGroup? = itemView.findViewById(R.id.home_type_holder)
+        private val toggleListHolder: ChipGroup? = itemView.findViewById(R.id.home_type_holder)
 
         init {
             previewViewpager.setPageTransformer(HomeScrollTransformer())
@@ -445,8 +430,14 @@ class HomeParentItemAdapterPreview(
             resumeRecyclerView.adapter = resumeAdapter
             bookmarkRecyclerView.adapter = bookmarkAdapter
 
-            resumeRecyclerView.setLinearListLayout(nextLeft = R.id.nav_rail_view, nextRight = FOCUS_SELF)
-            bookmarkRecyclerView.setLinearListLayout(nextLeft = R.id.nav_rail_view, nextRight = FOCUS_SELF)
+            resumeRecyclerView.setLinearListLayout(
+                nextLeft = R.id.nav_rail_view,
+                nextRight = FOCUS_SELF
+            )
+            bookmarkRecyclerView.setLinearListLayout(
+                nextLeft = R.id.nav_rail_view,
+                nextRight = FOCUS_SELF
+            )
 
             fixPaddingStatusbarMargin(topPadding)
 
@@ -474,11 +465,6 @@ class HomeParentItemAdapterPreview(
 
             (binding as? FragmentHomeHeadTvBinding)?.apply {
                 homePreviewChangeApi.setOnClickListener { view ->
-                    view.context.selectHomepage(viewModel.repo?.name) { api ->
-                        viewModel.loadAndCancel(api, forceReload = true, fromUI = true)
-                    }
-                }
-                homePreviewChangeApi2.setOnClickListener { view ->
                     view.context.selectHomepage(viewModel.repo?.name) { api ->
                         viewModel.loadAndCancel(api, forceReload = true, fromUI = true)
                     }
@@ -527,10 +513,6 @@ class HomeParentItemAdapterPreview(
         }
 
         private fun updatePreview(preview: Resource<Pair<Boolean, List<LoadResponse>>>) {
-            if (binding is FragmentHomeHeadTvBinding) {
-                binding.homePreviewChangeApi2.isGone = preview is Resource.Success
-            }
-
             if (preview is Resource.Success) {
                 homeNonePadding.apply {
                     val params = layoutParams
@@ -555,14 +537,18 @@ class HomeParentItemAdapterPreview(
                         previewViewpager.fakeDragBy(1f)
                         previewViewpager.endFakeDrag()
                         previewCallback.onPageSelected(0)
-                        previewHeader.isVisible = true
+                        previewViewpager.isVisible = true
+                        previewViewpagerText.isVisible = true
+                        //previewHeader.isVisible = true
                     }
                 }
 
                 else -> {
                     previewAdapter.setItems(listOf(), false)
                     previewViewpager.setCurrentItem(0, false)
-                    previewHeader.isVisible = false
+                    previewViewpager.isVisible = false
+                    previewViewpagerText.isVisible = false
+                    //previewHeader.isVisible = false
                 }
             }
         }
@@ -572,7 +558,7 @@ class HomeParentItemAdapterPreview(
             resumeAdapter.updateList(resumeWatching)
 
             if (binding is FragmentHomeHeadBinding) {
-                binding.homeBookmarkParentItemTitle.setOnClickListener {
+                binding.homeWatchParentItemTitle.setOnClickListener {
                     viewModel.popup(
                         HomeViewModel.ExpandableHomepageList(
                             HomePageList(
@@ -580,7 +566,10 @@ class HomeParentItemAdapterPreview(
                                 resumeWatching,
                                 false
                             ), 1, false
-                        )
+                        ),
+                        deleteCallback = {
+                            viewModel.deleteResumeWatching()
+                        }
                     )
                 }
             }
@@ -605,7 +594,9 @@ class HomeParentItemAdapterPreview(
                                 list,
                                 false
                             ), 1, false
-                        )
+                        ), deleteCallback = {
+                            viewModel.deleteBookmarks(list)
+                        }
                     )
                 }
             }

@@ -144,6 +144,7 @@ import com.lagradost.cloudstream3.utils.USER_PROVIDER_API
 import com.lagradost.cloudstream3.utils.USER_SELECTED_HOMEPAGE_API
 import com.lagradost.nicehttp.Requests
 import com.lagradost.nicehttp.ResponseParser
+import com.lagradost.safefile.SafeFile
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
@@ -278,6 +279,7 @@ var app = Requests(responseParser = object : ResponseParser {
 class MainActivity : AppCompatActivity(), ColorPickerDialogListener {
     companion object {
         const val TAG = "MAINACT"
+        var lastError: String? = null
 
         /**
          * Setting this will automatically enter the query in the search
@@ -286,7 +288,7 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener {
          *
          * This is a very bad solution but I was unable to find a better one.
          **/
-        private var nextSearchQuery: String? = null
+        var nextSearchQuery: String? = null
 
         /**
          * Fires every time a new batch of plugins have been loaded, no guarantee about how often this is run and on which thread
@@ -362,9 +364,14 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener {
                         loadRepository(url)
                         return true
                     } else if (safeURI(str)?.scheme == appStringSearch) {
+                        val query = str.substringAfter("$appStringSearch://")
                         nextSearchQuery =
-                            URLDecoder.decode(str.substringAfter("$appStringSearch://"), "UTF-8")
-
+                            try {
+                                URLDecoder.decode(query, "UTF-8")
+                            } catch (t: Throwable) {
+                                logError(t)
+                                query
+                            }
                         // Use both navigation views to support both layouts.
                         // It might be better to use the QuickSearch.
                         activity?.findViewById<BottomNavigationView>(R.id.nav_view)?.selectedItemId =
@@ -599,22 +606,9 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent?): Boolean {
-        val start = System.currentTimeMillis()
-        try {
-            val response = CommonActivity.dispatchKeyEvent(this, event)
-
-            if (response != null)
-                return response
-        } finally {
-            debugAssert({
-                val end = System.currentTimeMillis()
-                val delta = end - start
-                delta > 100
-            }) {
-                "Took over 100ms to navigate, smth is VERY wrong"
-            }
-        }
-
+        val response = CommonActivity.dispatchKeyEvent(this, event)
+        if (response != null)
+            return response
         return super.dispatchKeyEvent(event)
     }
 
@@ -867,7 +861,7 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener {
                 RecyclerView::class.java.declaredMethods.firstOrNull {
                     it.name == "scrollStep"
                 }?.also { it.isAccessible = true }
-            } catch (t : Throwable) {
+            } catch (t: Throwable) {
                 null
             }
         }
@@ -914,11 +908,11 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener {
                                 if (dx > 0) dx else 0
                             }
 
-                            if(!NO_MOVE_LIST) {
+                            if (!NO_MOVE_LIST) {
                                 parent.smoothScrollBy(rdx, 0)
-                            }else {
+                            } else {
                                 val smoothScroll = reflectedScroll
-                                if(smoothScroll == null) {
+                                if (smoothScroll == null) {
                                     parent.smoothScrollBy(rdx, 0)
                                 } else {
                                     try {
@@ -928,12 +922,12 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener {
                                         val out = IntArray(2)
                                         smoothScroll.invoke(parent, rdx, 0, out)
                                         val scrolledX = out[0]
-                                        if(abs(scrolledX) <= 0) { // newFocus.measuredWidth*2
+                                        if (abs(scrolledX) <= 0) { // newFocus.measuredWidth*2
                                             smoothScroll.invoke(parent, -rdx, 0, out)
                                             parent.smoothScrollBy(scrolledX, 0)
                                             if (NO_MOVE_LIST) targetDx = scrolledX
                                         }
-                                    } catch (t : Throwable) {
+                                    } catch (t: Throwable) {
                                         parent.smoothScrollBy(rdx, 0)
                                     }
                                 }
@@ -1054,10 +1048,11 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener {
         val settingsManager = PreferenceManager.getDefaultSharedPreferences(this)
 
         val errorFile = filesDir.resolve("last_error")
-        var lastError: String? = null
         if (errorFile.exists() && errorFile.isFile) {
             lastError = errorFile.readText(Charset.defaultCharset())
             errorFile.delete()
+        } else {
+            lastError = null
         }
 
         val settingsForProvider = SettingsJson()
@@ -1138,10 +1133,10 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener {
                             snackbar.show()
                         }
                 }
-
             }
         }
 
+        ioSafe { SafeFile.check(this@MainActivity) }
 
         if (PluginManager.checkSafeModeFile()) {
             normalSafeApiCall {
@@ -1167,16 +1162,16 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener {
                     }
 
                     //Automatically download not existing plugins, using mode specified.
-                    val auto_download_plugin = AutoDownloadMode.getEnum(
+                    val autoDownloadPlugin = AutoDownloadMode.getEnum(
                         settingsManager.getInt(
                             getString(R.string.auto_download_plugins_key),
                             0
                         )
                     ) ?: AutoDownloadMode.Disable
-                    if (auto_download_plugin != AutoDownloadMode.Disable) {
+                    if (autoDownloadPlugin != AutoDownloadMode.Disable) {
                         PluginManager.downloadNotExistingPluginsAndLoad(
                             this@MainActivity,
-                            auto_download_plugin
+                            autoDownloadPlugin
                         )
                     }
                 }
@@ -1327,7 +1322,6 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener {
             if (navDestination.matchDestination(R.id.navigation_search) && !nextSearchQuery.isNullOrBlank()) {
                 bundle?.apply {
                     this.putString(SearchFragment.SEARCH_QUERY, nextSearchQuery)
-                    nextSearchQuery = null
                 }
             }
         }
