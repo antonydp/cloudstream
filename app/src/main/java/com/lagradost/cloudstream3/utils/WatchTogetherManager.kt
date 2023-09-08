@@ -16,6 +16,7 @@ import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.viewModelScope
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -31,6 +32,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 class WatchTogetherViewModel : ViewModel() {
@@ -43,6 +46,14 @@ class WatchTogetherViewModel : ViewModel() {
     var connectedSocket: Boolean = false
     lateinit var syncMessageFlow: Flow<SyncEvent>
 
+    object WatchTogetherEventBus {
+        private val _playerEventFlow = MutableStateFlow<SyncEvent?>(null)
+        val playerEventFlow: StateFlow<SyncEvent?> = _playerEventFlow
+
+        fun sendPlayerEvent(event: SyncEvent) {
+            _playerEventFlow.value = event
+        }
+    }
 }
 fun showWatchTogether(context: Context) {
 
@@ -56,13 +67,41 @@ fun showWatchTogether(context: Context) {
          viewModel.syncMessageFlow = viewModel.roomSyncLibrary.syncMessageFlow
      }
     // Collect sync events using Flow
-    GlobalScope.launch {
+    CoroutineScope(Dispatchers.Main).launch {
         Log.d("FlowCollect", "Flow collection started")
         viewModel.roomSyncLibrary.syncMessageFlow.collect { syncEvent ->
             handleSyncEvent(syncEvent)
         }
         Log.d("FlowCollect", "Flow collection ended")
     }
+    viewModel.viewModelScope.launch {
+                WatchTogetherViewModel.WatchTogetherEventBus.playerEventFlow.collect { event ->
+                    if (event != null) {
+                        when (event) {
+                            is SyncEvent.Play -> {
+                                if (viewModel.connectedSocket) {
+                                    viewModel.roomSyncLibrary.sendPlayAction()
+                                }
+                            }
+
+                            is SyncEvent.Pause -> {
+                                if (viewModel.connectedSocket) {
+                                    viewModel.roomSyncLibrary.sendPauseAction()
+                                }
+                            }
+
+                            is SyncEvent.PlaybackSpeed -> {
+                                if (viewModel.connectedSocket) {
+                                    viewModel.roomSyncLibrary.sendSetPlaybackRateAction(event.playbackSpeed)
+                                }
+                            }
+                            // Handle other events as needed
+                            // ...
+                            else -> {}
+                        }
+                    }
+                }
+            }
     val userAdapter = UserAdapter(
         kickUserClickListener = { user ->
             val success = viewModel.roomSyncLibrary.kickUser(user)
@@ -166,7 +205,6 @@ fun showWatchTogether(context: Context) {
             viewModel.isConnectedElementsVisible = true
         }
     }
-
 
     binding.leaveButton.setOnClickListener {
         binding.loginForm.visibility = GONE

@@ -41,6 +41,7 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.trackselection.TrackSelector
 import androidx.media3.ui.SubtitleView
 import androidx.preference.PreferenceManager
+import com.antonydp.ottSyncApi.SyncEvent
 import com.lagradost.cloudstream3.APIHolder.getApiFromNameNull
 import com.lagradost.cloudstream3.AcraApplication.Companion.getKey
 import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
@@ -56,6 +57,11 @@ import com.lagradost.cloudstream3.utils.ExtractorLinkPlayList
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.ExtractorUri
 import com.lagradost.cloudstream3.utils.SubtitleHelper.fromTwoLettersToLanguage
+import com.lagradost.cloudstream3.utils.WatchTogetherViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
 import java.io.File
 import java.lang.IllegalArgumentException
 import javax.net.ssl.HttpsURLConnection
@@ -835,10 +841,17 @@ class CS3IPlayer : IPlayer {
                 when (event) {
                     CSPlayerEvent.Play -> {
                         play()
+                        CoroutineScope(Dispatchers.Main).launch {
+                            WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(SyncEvent.Play)
+
+                        }
                     }
 
                     CSPlayerEvent.Pause -> {
                         pause()
+                        CoroutineScope(Dispatchers.Main).launch {
+                            WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(SyncEvent.Pause(0.0))
+                        }
                     }
 
                     CSPlayerEvent.ToggleMute -> {
@@ -855,8 +868,14 @@ class CS3IPlayer : IPlayer {
                     CSPlayerEvent.PlayPauseToggle -> {
                         if (isPlaying) {
                             pause()
+                            CoroutineScope(Dispatchers.Main).launch {
+                                WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(SyncEvent.Pause(0.0))
+                            }
+
+
                         } else {
                             play()
+                            WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(SyncEvent.Play)
                         }
                     }
 
