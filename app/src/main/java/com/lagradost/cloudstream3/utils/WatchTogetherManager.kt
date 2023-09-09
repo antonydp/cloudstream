@@ -30,7 +30,6 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.databinding.WatchTogetherManagerBinding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,7 +41,6 @@ class WatchTogetherViewModel : ViewModel() {
     var isCreateFormVisible: Boolean = false
     var isConnectedElementsVisible: Boolean = false
     var roomId: String = ""
-    var myID: String? = ""
     lateinit var roomSyncLibrary: RoomSyncLibrary
     var connectedSocket: Boolean = false
     lateinit var syncMessageFlow: Flow<SyncEvent>
@@ -50,6 +48,7 @@ class WatchTogetherViewModel : ViewModel() {
     object WatchTogetherEventBus {
         private val _playerEventFlow = MutableStateFlow<SyncEvent?>(null)
         val playerEventFlow: StateFlow<SyncEvent?> = _playerEventFlow
+        var myID: String? = ""
 
         fun sendPlayerEvent(event: SyncEvent) {
             _playerEventFlow.value = event
@@ -104,7 +103,7 @@ fun showWatchTogether(context: Context) {
     viewModel.viewModelScope.launch {
         Log.d("FlowCollect", "Flow collection started")
         viewModel.roomSyncLibrary.syncMessageFlow.collect { syncEvent ->
-            handleSyncEvent(syncEvent, viewModel)
+            handleSyncEvent(syncEvent)
         }
         Log.d("FlowCollect", "Flow collection ended")
     }
@@ -241,10 +240,10 @@ fun showWatchTogether(context: Context) {
     builder.show()
 }
 
-fun handleSyncEvent(syncEvent: SyncEvent, viewModel: WatchTogetherViewModel) {
+fun handleSyncEvent(syncEvent: SyncEvent) {
     when (syncEvent) {
         is SyncEvent.You -> {
-            viewModel.myID = syncEvent.userID
+            WatchTogetherViewModel.WatchTogetherEventBus.myID = syncEvent.userID
         }
         else -> {}
     }

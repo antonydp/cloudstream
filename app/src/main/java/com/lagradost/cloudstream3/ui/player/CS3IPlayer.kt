@@ -842,7 +842,7 @@ class CS3IPlayer : IPlayer {
                     CSPlayerEvent.Play -> {
                         play()
                         CoroutineScope(Dispatchers.Main).launch {
-                            WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(SyncEvent.Play)
+                            WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(SyncEvent.Play(""))
 
                         }
                     }
@@ -850,7 +850,7 @@ class CS3IPlayer : IPlayer {
                     CSPlayerEvent.Pause -> {
                         pause()
                         CoroutineScope(Dispatchers.Main).launch {
-                            WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(SyncEvent.Pause(0.0))
+                            WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(SyncEvent.Pause(""))
                         }
                     }
 
@@ -869,13 +869,13 @@ class CS3IPlayer : IPlayer {
                         if (isPlaying) {
                             pause()
                             CoroutineScope(Dispatchers.Main).launch {
-                                WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(SyncEvent.Pause(0.0))
+                                WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(SyncEvent.Pause(""))
                             }
 
 
                         } else {
                             play()
-                            WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(SyncEvent.Play)
+                            WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(SyncEvent.Play(""))
                         }
                     }
 
