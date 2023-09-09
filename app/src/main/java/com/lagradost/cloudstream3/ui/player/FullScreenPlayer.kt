@@ -385,6 +385,11 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
         }
 
         player.setPlaybackSpeed(speed)
+        CoroutineScope(Dispatchers.Main).launch {
+            WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(
+                SyncEvent.PlaybackSpeed(0.0, speed.toDouble())
+            )
+        }
     }
 
     private fun skipOp() {
@@ -1527,6 +1532,13 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
 
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_BUTTON_RELEASE -> {
                         autoHide()
+                        CoroutineScope(Dispatchers.Main).launch {
+                            WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(
+                                SyncEvent.Seek(
+                                    Math.round(player.getPosition()?.div(100)?.toDouble()?:1.0).div(10.0)
+                                )
+                            )
+                        }
                     }
                 }
                 return@setOnTouchListener false

@@ -56,7 +56,6 @@ class WatchTogetherViewModel : ViewModel() {
     }
 }
 fun showWatchTogether(context: Context) {
-
     val viewModel = ViewModelProvider(context as ViewModelStoreOwner).get(WatchTogetherViewModel::class.java)
     if (viewModel.isManagerShowing) {
         // The manager is already showing, no need to show it again.
@@ -66,42 +65,41 @@ fun showWatchTogether(context: Context) {
          viewModel.roomSyncLibrary = RoomSyncLibrary(app.baseClient)
          viewModel.syncMessageFlow = viewModel.roomSyncLibrary.syncMessageFlow
      }
-    // Collect sync events using Flow
-    CoroutineScope(Dispatchers.Main).launch {
-        Log.d("FlowCollect", "Flow collection started")
-        viewModel.roomSyncLibrary.syncMessageFlow.collect { syncEvent ->
-            handleSyncEvent(syncEvent)
-        }
-        Log.d("FlowCollect", "Flow collection ended")
-    }
+
     viewModel.viewModelScope.launch {
-                WatchTogetherViewModel.WatchTogetherEventBus.playerEventFlow.collect { event ->
-                    if (event != null) {
-                        when (event) {
-                            is SyncEvent.Play -> {
-                                if (viewModel.connectedSocket) {
-                                    viewModel.roomSyncLibrary.sendPlayAction()
-                                }
-                            }
-
-                            is SyncEvent.Pause -> {
-                                if (viewModel.connectedSocket) {
-                                    viewModel.roomSyncLibrary.sendPauseAction()
-                                }
-                            }
-
-                            is SyncEvent.PlaybackSpeed -> {
-                                if (viewModel.connectedSocket) {
-                                    viewModel.roomSyncLibrary.sendSetPlaybackRateAction(event.playbackSpeed)
-                                }
-                            }
-                            // Handle other events as needed
-                            // ...
-                            else -> {}
+        WatchTogetherViewModel.WatchTogetherEventBus.playerEventFlow.collect { event ->
+            if (event != null) {
+                when (event) {
+                    is SyncEvent.Play -> {
+                        if (viewModel.connectedSocket) {
+                            viewModel.roomSyncLibrary.sendPlayAction()
                         }
                     }
+
+                    is SyncEvent.Pause -> {
+                        if (viewModel.connectedSocket) {
+                            viewModel.roomSyncLibrary.sendPauseAction()
+                        }
+                    }
+
+                    is SyncEvent.PlaybackSpeed -> {
+                        if (viewModel.connectedSocket) {
+                            viewModel.roomSyncLibrary.sendSetPlaybackRateAction(event.playbackSpeed)
+                        }
+                    }
+
+                    is SyncEvent.Seek -> {
+                        if (viewModel.connectedSocket) {
+                            viewModel.roomSyncLibrary.sendSeekAction(event.playbackPosition)
+                        }
+                    }
+                    // Handle other events as needed
+                    // ...
+                    else -> {}
                 }
             }
+        }
+    }
     val userAdapter = UserAdapter(
         kickUserClickListener = { user ->
             val success = viewModel.roomSyncLibrary.kickUser(user)
@@ -370,47 +368,3 @@ class UserDiffCallback(
     }
 }
 
-private fun handleSyncEvent(syncEvent: SyncEvent) {
-    when (syncEvent) {
-        is SyncEvent.Seek -> {
-            val playbackPosition = syncEvent.playbackPosition
-            Log.d("SyncEventDebug", "Seek event - Playback Position: $playbackPosition")
-
-            // Handle Seek sync event
-        }
-        is SyncEvent.PlaybackSpeed -> {
-            val playbackPosition = syncEvent.playbackPosition
-            val playbackSpeed = syncEvent.playbackSpeed
-            Log.d("SyncEventDebug", "PlaybackSpeed event - Playback Position: $playbackPosition, Playback Speed: $playbackSpeed")
-            // Handle PlaybackSpeed sync event
-        }
-        is SyncEvent.Pause -> {
-            val playbackPosition = syncEvent.playbackPosition
-            Log.d("SyncEventDebug", "Pause event - Playback Position: $playbackPosition")
-            // Handle Pause sync event
-        }
-        is SyncEvent.Play -> {
-            Log.d("SyncEventDebug", "Play event")
-            // Handle Play sync event
-        }
-        is SyncEvent.TitleChanged -> {
-            val title = syncEvent.titleValue
-            Log.d("SyncEventDebug", "Title event - Value: $title")
-            // Handle Title sync event
-        }
-        is SyncEvent.Message -> {
-            val messageData = syncEvent.messageData
-            Log.d("SyncEventDebug", "Message event - Value: $messageData")
-            // Handle Message sync event
-        }
-        is SyncEvent.Status -> {
-            val statusData = syncEvent.statusData
-            val userID = syncEvent.userID
-            Log.d("SyncEventDebug", "Status event - Value: $statusData, userID: $userID")
-        }
-        is SyncEvent.SourceUpdated -> {
-            val source = syncEvent.source
-            Log.d("SyncEventDebug", "Source event - Source Title: ${source.title}, Source ID (link for direct urls): ${source.id} ")
-        }
-    }
-}
