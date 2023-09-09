@@ -1282,6 +1282,8 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
                                 false
                             )
                         }
+
+                        else -> {}
                     }
                 }
             }

@@ -42,6 +42,7 @@ class WatchTogetherViewModel : ViewModel() {
     var isCreateFormVisible: Boolean = false
     var isConnectedElementsVisible: Boolean = false
     var roomId: String = ""
+    var myID: String? = ""
     lateinit var roomSyncLibrary: RoomSyncLibrary
     var connectedSocket: Boolean = false
     lateinit var syncMessageFlow: Flow<SyncEvent>
@@ -100,6 +101,14 @@ fun showWatchTogether(context: Context) {
             }
         }
     }
+    viewModel.viewModelScope.launch {
+        Log.d("FlowCollect", "Flow collection started")
+        viewModel.roomSyncLibrary.syncMessageFlow.collect { syncEvent ->
+            handleSyncEvent(syncEvent, viewModel)
+        }
+        Log.d("FlowCollect", "Flow collection ended")
+    }
+
     val userAdapter = UserAdapter(
         kickUserClickListener = { user ->
             val success = viewModel.roomSyncLibrary.kickUser(user)
@@ -230,6 +239,15 @@ fun showWatchTogether(context: Context) {
 
     }
     builder.show()
+}
+
+fun handleSyncEvent(syncEvent: SyncEvent, viewModel: WatchTogetherViewModel) {
+    when (syncEvent) {
+        is SyncEvent.You -> {
+            viewModel.myID = syncEvent.userID
+        }
+        else -> {}
+    }
 }
 
 private fun copyTextToClipboard(text: String, context: Context) {

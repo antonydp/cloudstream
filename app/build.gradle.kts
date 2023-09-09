@@ -234,7 +234,7 @@ dependencies {
     implementation("org.conscrypt:conscrypt-android:2.2.1")
     // Util to skip the URI file fuckery 🙏
     implementation("com.github.LagradOst:SafeFile:0.0.5")
-    implementation("com.github.antonydp:OTTSyncApi:0.1.9")
+    implementation("com.github.antonydp:OTTSyncApi:0.2.0")
 
     // API because cba maintaining it myself
     implementation("com.uwetrottmann.tmdb2:tmdb-java:2.6.0")
