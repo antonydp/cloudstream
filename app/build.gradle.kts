@@ -51,12 +51,12 @@ android {
     }
 
     compileSdk = 33
-    buildToolsVersion = "30.0.3"
+    buildToolsVersion = "34.0.0"
 
     defaultConfig {
         applicationId = "com.lagradost.cloudstream3"
         minSdk = 21
-        targetSdk = 29
+        targetSdk = 33
 
         versionCode = 59
         versionName = "4.1.8"
@@ -251,9 +251,9 @@ dependencies {
     // used for subtitle decoding https://github.com/albfernandez/juniversalchardet
     implementation("com.github.albfernandez:juniversalchardet:2.4.0")
 
-    // newpipe yt taken from https://github.com/TeamNewPipe/NewPipe/blob/dev/app/build.gradle#L204
+    // newpipe yt taken from https://github.com/TeamNewPipe/NewPipeExtractor/commits/dev
     // this should be updated frequently to avoid trailer fu*kery
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:1f08d28")
+    implementation("com.github.teamnewpipe:NewPipeExtractor:1f08d28")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:1.1.6")
 
     // Library/extensions searching with Levenshtein distance
