@@ -1232,7 +1232,9 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
                     when (syncEvent) {
                         is SyncEvent.Seek -> {
                             // Handle Seek event
-                            player.seekTo(syncEvent.playbackPosition.toLong() * 1000)
+                            if (syncEvent.id != WatchTogetherViewModel.WatchTogetherEventBus.myID){
+                                player.seekTo(syncEvent.playbackPosition.toLong() * 1000)
+                            }
                         }
 
                         is SyncEvent.PlaybackSpeed -> {
@@ -1242,12 +1244,16 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
 
                         is SyncEvent.Pause -> {
                             // Handle Pause event
-                            player.handleEvent(CSPlayerEvent.Pause)
+                            if (syncEvent.id != WatchTogetherViewModel.WatchTogetherEventBus.myID){
+                                player.handleEvent(CSPlayerEvent.Pause)
+                            }
                         }
 
                         is SyncEvent.Play -> {
                             // Handle Play event
-                            player.handleEvent(CSPlayerEvent.Play)
+                            if (syncEvent.id != WatchTogetherViewModel.WatchTogetherEventBus.myID) {
+                                player.handleEvent(CSPlayerEvent.Play)
+                            }
                         }
 
                         is SyncEvent.TitleChanged -> {
@@ -1534,14 +1540,6 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
 
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_BUTTON_RELEASE -> {
                         autoHide()
-                        CoroutineScope(Dispatchers.Main).launch {
-                            WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(
-                                SyncEvent.Seek(
-                                    Math.round(player.getPosition()?.div(100)?.toDouble()?:1.0).div(10.0),
-                                    WatchTogetherViewModel.WatchTogetherEventBus.myID?:""
-                                )
-                            )
-                        }
                     }
                 }
                 return@setOnTouchListener false

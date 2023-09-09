@@ -817,6 +817,15 @@ class CS3IPlayer : IPlayer {
         val duration = exoPlayer?.contentDuration
         if (duration != null && position != null) {
             playerPositionChanged?.invoke(Pair(position, duration))
+            CoroutineScope(Dispatchers.Main).launch {
+                WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(
+                    //TODO fix
+                    SyncEvent.Seek(
+                        Math.round(position.div(100).toDouble()).div(10.0),
+                        WatchTogetherViewModel.WatchTogetherEventBus.myID?:""
+                    )
+                )
+            }
         }
     }
 
