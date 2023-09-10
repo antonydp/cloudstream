@@ -887,7 +887,7 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
                                     currentTouch
                                 )?.let { seekTo ->
                                     if (abs(seekTo - startTime) > MINIMUM_SEEK_TIME) {
-                                        player.seekTo(seekTo)
+                                        player.seekTo(seekTo, PlayerEventSource.UI)
                                     }
                                 }
                             }
@@ -922,7 +922,7 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
                                         }
 
                                         else -> {
-                                            player.handleEvent(CSPlayerEvent.PlayPauseToggle)
+                                            player.handleEvent(CSPlayerEvent.PlayPauseToggle, PlayerEventSource.UI)
                                         }
                                     }
                                 } else if (doubleTapEnabled && isFullScreenPlayer) {

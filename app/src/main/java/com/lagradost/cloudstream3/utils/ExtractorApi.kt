@@ -227,7 +227,6 @@ data class ExtractorLinkPlayList(
     val playlist: List<PlayListItem>,
     override val referer: String,
     override val quality: Int,
-    val isM3u8: Boolean = false,
     override val headers: Map<String, String> = mapOf(),
     /** Used for getExtractorVerifierJob() */
     override val extractorData: String? = null,
@@ -378,6 +377,9 @@ open class ExtractorLink constructor(
     open val extractorData: String? = null,
     open val type: ExtractorLinkType,
 ) : VideoDownloadManager.IDownloadableMinimum {
+    val isM3u8 : Boolean get() = type == ExtractorLinkType.M3U8
+    val isDash : Boolean get() = type == ExtractorLinkType.DASH
+
     constructor(
         source: String,
         name: String,
