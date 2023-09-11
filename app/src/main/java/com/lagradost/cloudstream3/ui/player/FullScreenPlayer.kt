@@ -1233,7 +1233,7 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
                         is SyncEvent.Seek -> {
                             // Handle Seek event
                             if (syncEvent.id != WatchTogetherViewModel.WatchTogetherEventBus.myID){
-                                player.seekTo(syncEvent.playbackPosition.toLong() * 1000)
+                                player.seekTo(syncEvent.playbackPosition.toLong() * 1000, PlayerEventSource.Sync)
                             }
                         }
 
@@ -1245,14 +1245,14 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
                         is SyncEvent.Pause -> {
                             // Handle Pause event
                             if (syncEvent.id != WatchTogetherViewModel.WatchTogetherEventBus.myID){
-                                player.handleEvent(CSPlayerEvent.Pause)
+                                player.handleEvent(CSPlayerEvent.Pause, PlayerEventSource.Sync)
                             }
                         }
 
                         is SyncEvent.Play -> {
                             // Handle Play event
                             if (syncEvent.id != WatchTogetherViewModel.WatchTogetherEventBus.myID) {
-                                player.handleEvent(CSPlayerEvent.Play)
+                                player.handleEvent(CSPlayerEvent.Play, PlayerEventSource.Sync)
                             }
                         }
 
