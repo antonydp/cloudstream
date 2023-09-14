@@ -41,6 +41,7 @@ import com.lagradost.cloudstream3.AcraApplication.Companion.getKey
 import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
 import com.lagradost.cloudstream3.CommonActivity.keyEventListener
 import com.lagradost.cloudstream3.CommonActivity.playerEventListener
+import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.databinding.PlayerCustomLayoutBinding
 import com.lagradost.cloudstream3.databinding.SubtitleOffsetBinding
@@ -51,6 +52,7 @@ import com.lagradost.cloudstream3.ui.result.setText
 import com.lagradost.cloudstream3.ui.result.txt
 import com.lagradost.cloudstream3.utils.AppUtils.isUsingMobileData
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showDialog
 import com.lagradost.cloudstream3.utils.UIHelper.colorFromAttribute
 import com.lagradost.cloudstream3.utils.UIHelper.dismissSafe
@@ -62,6 +64,7 @@ import com.lagradost.cloudstream3.utils.UIHelper.showSystemUI
 import com.lagradost.cloudstream3.utils.UIHelper.toPx
 import com.lagradost.cloudstream3.utils.Vector2
 import com.lagradost.cloudstream3.utils.WatchTogetherViewModel
+import com.lagradost.cloudstream3.utils.loadExtractor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -1238,8 +1241,8 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
                         }
 
                         is SyncEvent.PlaybackSpeed -> {
-                            // Handle PlaybackSpeed event
-                            setPlayBackSpeed(syncEvent.playbackSpeed.toFloat())
+                            // Handle PlaybackSpeed
+                            player.setPlaybackSpeed(syncEvent.playbackSpeed.toFloat())
                         }
 
                         is SyncEvent.Pause -> {
@@ -1270,25 +1273,9 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
 
                         is SyncEvent.SourceUpdated -> {
                             // Handle SourceUpdated event
-                            player.loadPlayer(
-                                requireContext(),
-                                false,
-                                ExtractorLink(
-                                    "direct",
-                                    "direct",
-                                    syncEvent.source.id,
-                                    "",
-                                    0,
-                                    false
-                                ),
-                                null,
-                                syncEvent.source.startAt.toDouble().toLong(),
-                                emptySet(),
-                                null,
-                                false
-                            )
-                        }
+                            // syncEvent.source.id has the url of the video!
 
+                        }
                         else -> {}
                     }
                 }

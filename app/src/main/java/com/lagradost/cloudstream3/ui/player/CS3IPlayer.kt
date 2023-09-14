@@ -817,16 +817,6 @@ class CS3IPlayer : IPlayer {
                 )
             )
 
-            if (source==PlayerEventSource.UI){
-                CoroutineScope(Dispatchers.Main).launch {
-                    WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(
-                        SyncEvent.Seek(
-                            Math.round(position.div(100).toDouble()).div(10.0),
-                            WatchTogetherViewModel.WatchTogetherEventBus.myID?:""
-                        )
-                    )
-                }
-            }
         }
     }
 
@@ -852,21 +842,11 @@ class CS3IPlayer : IPlayer {
                     CSPlayerEvent.Play -> {
                         event(PlayEvent(source))
                         play()
-                        if(source == PlayerEventSource.UI){
-                            CoroutineScope(Dispatchers.Main).launch {
-                                WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(SyncEvent.Play(""))
-                            }
-                        }
                     }
 
                     CSPlayerEvent.Pause -> {
                         event(PauseEvent(source))
                         pause()
-                        if(source == PlayerEventSource.UI){
-                            CoroutineScope(Dispatchers.Main).launch {
-                                WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(SyncEvent.Pause(""))
-                            }
-                        }
                     }
 
                     CSPlayerEvent.ToggleMute -> {

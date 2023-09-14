@@ -30,6 +30,7 @@ import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.SubtitleView
 import androidx.media3.ui.TimeBar
+import com.antonydp.ottSyncApi.SyncEvent
 import com.lagradost.cloudstream3.AcraApplication.Companion.getKey
 import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
 import com.lagradost.cloudstream3.CommonActivity.canEnterPipMode
@@ -49,6 +50,10 @@ import com.lagradost.cloudstream3.utils.EpisodeSkip
 import com.lagradost.cloudstream3.utils.UIHelper
 import com.lagradost.cloudstream3.utils.UIHelper.hideSystemUI
 import com.lagradost.cloudstream3.utils.UIHelper.popCurrentPage
+import com.lagradost.cloudstream3.utils.WatchTogetherViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 enum class PlayerResize(@StringRes val nameRes: Int) {
     Fit(R.string.resize_fit),
@@ -415,6 +420,16 @@ abstract class AbstractPlayerFragment(
             }
             is PositionEvent -> {
                 playerPositionChanged(position = event.toMs, duration = event.durationMs)
+                if (event.source == PlayerEventSource.UI){
+                    CoroutineScope(Dispatchers.Main).launch {
+                        WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(
+                            SyncEvent.Seek(
+                                Math.round(event.toMs.div(100).toDouble()).div(10.0),
+                                WatchTogetherViewModel.WatchTogetherEventBus.myID?:""
+                            )
+                        )
+                    }
+                }
             }
             is VideoEndedEvent -> {
                 context?.let { ctx ->
@@ -432,8 +447,24 @@ abstract class AbstractPlayerFragment(
                     }
                 }
             }
-            is PauseEvent -> Unit
-            is PlayEvent -> Unit
+            is PauseEvent -> {
+                if(event.source == PlayerEventSource.UI){
+                    CoroutineScope(Dispatchers.Main).launch {
+                        WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(
+                            SyncEvent.Pause(WatchTogetherViewModel.WatchTogetherEventBus.myID?:"")
+                        )
+                    }
+                }
+            }
+            is PlayEvent -> {
+                if(event.source == PlayerEventSource.UI){
+                    CoroutineScope(Dispatchers.Main).launch {
+                        WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(
+                            SyncEvent.Play(WatchTogetherViewModel.WatchTogetherEventBus.myID?:"")
+                        )
+                    }
+                }
+            }
         }
     }
 
