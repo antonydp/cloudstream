@@ -55,6 +55,7 @@ import com.lagradost.cloudstream3.utils.AppUtils.setDefaultFocus
 import com.lagradost.cloudstream3.utils.Coroutines.main
 import com.lagradost.cloudstream3.utils.DataStore.getKey
 import com.lagradost.cloudstream3.utils.DataStore.setKey
+import com.lagradost.cloudstream3.utils.DataStoreHelper.currentAccount
 import com.lagradost.cloudstream3.utils.SubtitleHelper
 import com.lagradost.cloudstream3.utils.UIHelper.dismissSafe
 import com.lagradost.cloudstream3.utils.UIHelper.fixPaddingStatusbar
@@ -193,7 +194,7 @@ class SearchFragment : Fragment() {
                 validAPIs.flatMap { api -> api.supportedTypes }.distinct()
             ) { list ->
                 if (selectedSearchTypes.toSet() != list.toSet()) {
-                    setKey(SEARCH_PREF_TAGS, selectedSearchTypes)
+                    setKey("$currentAccount/$SEARCH_PREF_TAGS", selectedSearchTypes)
                     selectedSearchTypes.clear()
                     selectedSearchTypes.addAll(list)
                     search(binding?.mainSearch?.query?.toString())
@@ -235,7 +236,7 @@ class SearchFragment : Fragment() {
         context?.let { ctx ->
             val validAPIs = ctx.filterProviderByPreferredMedia()
             selectedApis = ctx.getKey(
-                SEARCH_PREF_PROVIDERS,
+                "$currentAccount/$SEARCH_PREF_PROVIDERS",
                 defVal = validAPIs.map { it.name }
             )!!.toMutableSet()
         }
@@ -286,7 +287,7 @@ class SearchFragment : Fragment() {
                     }
 
                     fun updateList(types: List<TvType>) {
-                        setKey(SEARCH_PREF_TAGS, types.map { it.name })
+                        setKey("$currentAccount/$SEARCH_PREF_TAGS", types.map { it.name })
 
                         arrayAdapter.clear()
                         currentValidApis = validAPIs.filter { api ->
@@ -311,7 +312,7 @@ class SearchFragment : Fragment() {
                         arrayAdapter.notifyDataSetChanged()
                     }
 
-                    val selectedSearchTypes = getKey<List<String>>(SEARCH_PREF_TAGS)
+                    val selectedSearchTypes = getKey<List<String>>("$currentAccount/$SEARCH_PREF_TAGS")
                         ?.mapNotNull { listName ->
                             TvType.values().firstOrNull { it.name == listName }
                         }
@@ -342,7 +343,7 @@ class SearchFragment : Fragment() {
                     }
 
                     dialog.setOnDismissListener {
-                        context?.setKey(SEARCH_PREF_PROVIDERS, currentSelectedApis.toList())
+                        context?.setKey("$currentAccount/$SEARCH_PREF_PROVIDERS", currentSelectedApis.toList())
                         selectedApis = currentSelectedApis
                     }
                     updateList(selectedSearchTypes.toList())
@@ -353,7 +354,7 @@ class SearchFragment : Fragment() {
         val settingsManager = context?.let { PreferenceManager.getDefaultSharedPreferences(it) }
         val isAdvancedSearch = settingsManager?.getBoolean("advanced_search", true) ?: true
 
-        selectedSearchTypes = context?.getKey<List<String>>(SEARCH_PREF_TAGS)
+        selectedSearchTypes = context?.getKey<List<String>>("$currentAccount/$SEARCH_PREF_TAGS")
             ?.mapNotNull { listName -> TvType.values().firstOrNull { it.name == listName } }
             ?.toMutableList()
             ?: mutableListOf(TvType.Movie, TvType.TvSeries)
@@ -398,7 +399,7 @@ class SearchFragment : Fragment() {
                     DialogInterface.OnClickListener { _, which ->
                         when (which) {
                             DialogInterface.BUTTON_POSITIVE -> {
-                                removeKeys(SEARCH_HISTORY_KEY)
+                                removeKeys("$currentAccount/$SEARCH_HISTORY_KEY")
                                 searchViewModel.updateHistory()
                             }
                             DialogInterface.BUTTON_NEGATIVE -> {
@@ -510,7 +511,7 @@ class SearchFragment : Fragment() {
                     binding?.mainSearch?.setQuery(searchItem.searchText, true)
                 }
                 SEARCH_HISTORY_REMOVE -> {
-                    removeKey(SEARCH_HISTORY_KEY, searchItem.key)
+                    removeKey("$currentAccount/$SEARCH_HISTORY_KEY", searchItem.key)
                     searchViewModel.updateHistory()
                 }
                 else -> {

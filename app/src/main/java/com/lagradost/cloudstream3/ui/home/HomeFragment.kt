@@ -69,7 +69,6 @@ import com.lagradost.cloudstream3.utils.UIHelper.dismissSafe
 import com.lagradost.cloudstream3.utils.UIHelper.fixPaddingStatusbar
 import com.lagradost.cloudstream3.utils.UIHelper.getSpanCount
 import com.lagradost.cloudstream3.utils.UIHelper.popupMenuNoIconsAndNoStringRes
-import com.lagradost.cloudstream3.utils.USER_SELECTED_HOMEPAGE_API
 
 import java.util.*
 
@@ -378,7 +377,7 @@ class HomeFragment : Fragment() {
                 var currentApiName = selectedApiName
 
                 var currentValidApis: MutableList<MainAPI> = mutableListOf()
-                val preSelectedTypes = this.getKey<List<String>>(HOME_PREF_HOMEPAGE)
+                val preSelectedTypes = this.getKey<List<String>>("${DataStoreHelper.currentAccount}/$HOME_PREF_HOMEPAGE")
                     ?.mapNotNull { listName -> TvType.values().firstOrNull { it.name == listName } }
                     ?.toMutableList()
                     ?: mutableListOf(TvType.Movie, TvType.TvSeries)
@@ -409,7 +408,7 @@ class HomeFragment : Fragment() {
                 }
 
                 fun updateList() {
-                    this.setKey(HOME_PREF_HOMEPAGE, preSelectedTypes)
+                    this.setKey("${DataStoreHelper.currentAccount}/$HOME_PREF_HOMEPAGE", preSelectedTypes)
 
                     arrayAdapter.clear()
                     currentValidApis = validAPIs.filter { api ->
@@ -669,7 +668,7 @@ class HomeFragment : Fragment() {
         }
 
         homeViewModel.reloadStored()
-        homeViewModel.loadAndCancel(getKey(USER_SELECTED_HOMEPAGE_API), false)
+        homeViewModel.loadAndCancel(DataStoreHelper.currentHomePage, false)
         //loadHomePage(false)
 
         // nice profile pic on homepage

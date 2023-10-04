@@ -38,6 +38,8 @@ import com.lagradost.cloudstream3.AcraApplication.Companion.getKey
 import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
 import com.lagradost.cloudstream3.CommonActivity.keyEventListener
 import com.lagradost.cloudstream3.CommonActivity.playerEventListener
+import com.lagradost.cloudstream3.CommonActivity.screenHeight
+import com.lagradost.cloudstream3.CommonActivity.screenWidth
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.databinding.PlayerCustomLayoutBinding
 import com.lagradost.cloudstream3.databinding.SubtitleOffsetBinding
@@ -47,6 +49,7 @@ import com.lagradost.cloudstream3.ui.player.source_priority.QualityDataHelper
 import com.lagradost.cloudstream3.ui.result.setText
 import com.lagradost.cloudstream3.ui.result.txt
 import com.lagradost.cloudstream3.utils.AppUtils.isUsingMobileData
+import com.lagradost.cloudstream3.utils.DataStoreHelper.currentAccount
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showDialog
 import com.lagradost.cloudstream3.utils.UIHelper.colorFromAttribute
 import com.lagradost.cloudstream3.utils.UIHelper.dismissSafe
@@ -125,19 +128,6 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
     //private var useSystemBrightness = false
     protected var useTrueSystemBrightness = true
     private val fullscreenNotch = true //TODO SETTING
-
-    protected val displayMetrics: DisplayMetrics = Resources.getSystem().displayMetrics
-
-    // screenWidth and screenHeight does always
-    // refer to the screen while in landscape mode
-    protected val screenWidth: Int
-        get() {
-            return max(displayMetrics.widthPixels, displayMetrics.heightPixels)
-        }
-    protected val screenHeight: Int
-        get() {
-            return min(displayMetrics.widthPixels, displayMetrics.heightPixels)
-        }
 
     private var statusBarHeight: Int? = null
     private var navigationBarHeight: Int? = null
@@ -367,7 +357,7 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
 
     private fun setPlayBackSpeed(speed: Float) {
         try {
-            setKey(PLAYBACK_SPEED_KEY, speed)
+            setKey("$currentAccount/$PLAYBACK_SPEED_KEY", speed)
             playerBinding?.playerSpeedBtt?.text =
                 getString(R.string.player_speed_text_format).format(speed)
                     .replace(".0x", "x")
@@ -1205,7 +1195,7 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         // init variables
-        setPlayBackSpeed(getKey(PLAYBACK_SPEED_KEY) ?: 1.0f)
+        setPlayBackSpeed(getKey("$currentAccount/$PLAYBACK_SPEED_KEY") ?: 1.0f)
         savedInstanceState?.getLong(SUBTITLE_DELAY_BUNDLE_KEY)?.let {
             subtitleDelay = it
         }

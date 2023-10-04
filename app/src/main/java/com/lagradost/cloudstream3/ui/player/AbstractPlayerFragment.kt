@@ -18,10 +18,9 @@ import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.annotation.LayoutRes
 import androidx.annotation.StringRes
+import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
-import androidx.preference.PreferenceManager
-import androidx.vectordrawable.graphics.drawable.AnimatedVectorDrawableCompat
 import androidx.media3.common.PlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
@@ -30,6 +29,10 @@ import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.SubtitleView
 import androidx.media3.ui.TimeBar
+import androidx.preference.PreferenceManager
+import androidx.vectordrawable.graphics.drawable.AnimatedVectorDrawableCompat
+import com.github.rubensousa.previewseekbar.PreviewBar
+import com.github.rubensousa.previewseekbar.media3.PreviewTimeBar
 import com.lagradost.cloudstream3.AcraApplication.Companion.getKey
 import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
 import com.lagradost.cloudstream3.CommonActivity.canEnterPipMode
@@ -45,6 +48,7 @@ import com.lagradost.cloudstream3.ui.subtitles.SaveCaptionStyle
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment
 import com.lagradost.cloudstream3.utils.AppUtils
 import com.lagradost.cloudstream3.utils.AppUtils.requestLocalAudioFocus
+import com.lagradost.cloudstream3.utils.DataStoreHelper.currentAccount
 import com.lagradost.cloudstream3.utils.EpisodeSkip
 import com.lagradost.cloudstream3.utils.UIHelper
 import com.lagradost.cloudstream3.utils.UIHelper.hideSystemUI
@@ -439,7 +443,7 @@ abstract class AbstractPlayerFragment(
 
     @SuppressLint("SetTextI18n", "UnsafeOptInUsageError")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        resizeMode = getKey(RESIZE_MODE_KEY) ?: 0
+        resizeMode = getKey("$currentAccount/$RESIZE_MODE_KEY") ?: 0
         resize(resizeMode, false)
 
         player.releaseCallbacks()
@@ -454,6 +458,41 @@ abstract class AbstractPlayerFragment(
         )
 
         if (player is CS3IPlayer) {
+            // preview bar
+            val progressBar : PreviewTimeBar? = playerView?.findViewById(R.id.exo_progress)
+            val previewImageView : ImageView? = playerView?.findViewById(R.id.previewImageView)
+            val previewFrameLayout : FrameLayout? = playerView?.findViewById(R.id.previewFrameLayout)
+            if(progressBar != null && previewImageView != null && previewFrameLayout != null) {
+                var resume = false
+                progressBar.addOnScrubListener(object : PreviewBar.OnScrubListener {
+                    override fun onScrubStart(previewBar: PreviewBar?) {
+                        progressBar.isPreviewEnabled = player.hasPreview()
+                        resume = player.getIsPlaying()
+                        if (resume) player.handleEvent(
+                            CSPlayerEvent.Pause,
+                            PlayerEventSource.Player
+                        )
+                    }
+
+                    override fun onScrubMove(
+                        previewBar: PreviewBar?,
+                        progress: Int,
+                        fromUser: Boolean
+                    ) {
+                    }
+
+                    override fun onScrubStop(previewBar: PreviewBar?) {
+                        if (resume) player.handleEvent(CSPlayerEvent.Play, PlayerEventSource.Player)
+                    }
+                })
+                progressBar.attachPreviewView(previewFrameLayout)
+                progressBar.setPreviewLoader { currentPosition, max ->
+                    val bitmap = player.getPreview(currentPosition.toFloat().div(max.toFloat()))
+                    previewImageView.isGone = bitmap == null
+                    previewImageView.setImageBitmap(bitmap)
+                }
+            }
+
             subView = playerView?.findViewById(R.id.exo_subtitles)
             subStyle = SubtitlesFragment.getCurrentSavedStyle()
             player.initSubtitles(subView, subtitleHolder, subStyle)
@@ -517,6 +556,7 @@ abstract class AbstractPlayerFragment(
         canEnterPipMode = false
         mMediaSession?.release()
         mMediaSession = null
+        playerView?.player = null
         SubtitlesFragment.applyStyleEvent -= ::onSubStyleChanged
 
         keepScreenOn(false)
@@ -534,7 +574,7 @@ abstract class AbstractPlayerFragment(
 
     @SuppressLint("UnsafeOptInUsageError")
     fun resize(resize: PlayerResize, showToast: Boolean) {
-        setKey(RESIZE_MODE_KEY, resize.ordinal)
+        setKey("$currentAccount/$RESIZE_MODE_KEY", resize.ordinal)
         val type = when (resize) {
             PlayerResize.Fill -> AspectRatioFrameLayout.RESIZE_MODE_FILL
             PlayerResize.Fit -> AspectRatioFrameLayout.RESIZE_MODE_FIT
