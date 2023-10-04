@@ -48,6 +48,7 @@ class WatchTogetherViewModel : ViewModel() {
     object WatchTogetherEventBus {
         private val _playerEventFlow = MutableStateFlow<SyncEvent?>(null)
         val playerEventFlow: StateFlow<SyncEvent?> = _playerEventFlow
+        var connectedSocket: Boolean = false
         var myID: String? = ""
 
         fun sendPlayerEvent(event: SyncEvent) {
@@ -61,7 +62,7 @@ fun showWatchTogether(context: Context) {
         // The manager is already showing, no need to show it again.
         return
     }
-     if (!viewModel.connectedSocket) run {
+     if (!WatchTogetherViewModel.WatchTogetherEventBus.connectedSocket) run {
          viewModel.roomSyncLibrary = RoomSyncLibrary(app.baseClient)
          viewModel.syncMessageFlow = viewModel.roomSyncLibrary.syncMessageFlow
      }
@@ -71,26 +72,34 @@ fun showWatchTogether(context: Context) {
             if (event != null) {
                 when (event) {
                     is SyncEvent.Play -> {
-                        if (viewModel.connectedSocket) {
+                        if (WatchTogetherViewModel.WatchTogetherEventBus.connectedSocket) {
                             viewModel.roomSyncLibrary.sendPlayAction()
                         }
                     }
 
                     is SyncEvent.Pause -> {
-                        if (viewModel.connectedSocket) {
+                        if (WatchTogetherViewModel.WatchTogetherEventBus.connectedSocket) {
                             viewModel.roomSyncLibrary.sendPauseAction()
                         }
                     }
 
                     is SyncEvent.PlaybackSpeed -> {
-                        if (viewModel.connectedSocket) {
+                        if (WatchTogetherViewModel.WatchTogetherEventBus.connectedSocket) {
                             viewModel.roomSyncLibrary.sendSetPlaybackRateAction(event.playbackSpeed)
                         }
                     }
 
                     is SyncEvent.Seek -> {
-                        if (viewModel.connectedSocket) {
+                        if (WatchTogetherViewModel.WatchTogetherEventBus.connectedSocket) {
                             viewModel.roomSyncLibrary.sendSeekAction(event.playbackPosition)
+                        }
+                    }
+
+                    is SyncEvent.SourceUpdated -> {
+                        try {
+                            viewModel.roomSyncLibrary.setCurrentSource(event.source.id)
+                        } catch(e: Exception) {
+                            viewModel.roomSyncLibrary.updateRoomTitle(viewModel.roomId, "HELLo")
                         }
                     }
                     // Handle other events as needed
@@ -173,7 +182,7 @@ fun showWatchTogether(context: Context) {
 
     binding.watchTogheterJoinButton.setOnClickListener {
         viewModel.roomId = binding.roomIdEditText.text.toString()
-        viewModel.connectedSocket = true
+        WatchTogetherViewModel.WatchTogetherEventBus.connectedSocket = true
         joinRoom(context, viewModel.roomSyncLibrary, userAdapter, viewModel.roomId)
 
         loginVisibilities(binding)
@@ -196,7 +205,7 @@ fun showWatchTogether(context: Context) {
             val roomID = createRoom(context, viewModel.roomSyncLibrary, username, password, binding.connectedElements)
             if (roomID != null) {
                 viewModel.roomId = roomID // Update the roomId variable
-                viewModel.connectedSocket = true
+                WatchTogetherViewModel.WatchTogetherEventBus.connectedSocket = true
                 binding.roomIDTextView.text = viewModel.roomId
                 binding.roomIDTextView.setOnLongClickListener { view ->
                     val textToCopy = (view as TextView).text.toString()
@@ -221,7 +230,7 @@ fun showWatchTogether(context: Context) {
         binding.connectedElements.visibility = GONE
 
         userAdapter.updateUserList(emptyList())
-        viewModel.connectedSocket = false
+        WatchTogetherViewModel.WatchTogetherEventBus.connectedSocket = false
 
         viewModel.isLoginFormVisible = false
         viewModel.isCreateFormVisible = false

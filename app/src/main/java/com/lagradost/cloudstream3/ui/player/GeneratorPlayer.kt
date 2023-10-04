@@ -21,6 +21,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.preference.PreferenceManager
 import androidx.media3.common.Format.NO_VALUE
 import androidx.media3.common.MimeTypes
+import com.antonydp.ottSyncApi.CurrentSource
+import com.antonydp.ottSyncApi.SyncEvent
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.APIHolder.getApiFromNameNull
 import com.lagradost.cloudstream3.CommonActivity.showToast
@@ -51,7 +53,10 @@ import com.lagradost.cloudstream3.utils.UIHelper.hideSystemUI
 import com.lagradost.cloudstream3.utils.UIHelper.popCurrentPage
 import com.lagradost.cloudstream3.utils.UIHelper.toPx
 import com.lagradost.safefile.SafeFile
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import java.util.*
 import kotlin.math.abs
 
@@ -902,6 +907,19 @@ class GeneratorPlayer : FullScreenPlayer() {
             return
         }
         loadLink(links.first(), false)
+
+        if (WatchTogetherViewModel.WatchTogetherEventBus.connectedSocket){
+            CoroutineScope(Dispatchers.Main).launch {
+                WatchTogetherViewModel.WatchTogetherEventBus.sendPlayerEvent(
+                    SyncEvent.SourceUpdated(
+                        CurrentSource("",
+                            links.first().first?.url?:"",
+                            "",
+                            "", "", "", "")
+                    )
+                )
+            }
+        }
     }
 
     override fun nextEpisode() {

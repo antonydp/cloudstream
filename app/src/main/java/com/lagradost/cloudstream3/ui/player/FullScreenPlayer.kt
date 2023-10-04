@@ -52,6 +52,7 @@ import com.lagradost.cloudstream3.ui.result.setText
 import com.lagradost.cloudstream3.ui.result.txt
 import com.lagradost.cloudstream3.utils.AppUtils.isUsingMobileData
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showDialog
 import com.lagradost.cloudstream3.utils.UIHelper.colorFromAttribute
@@ -59,12 +60,12 @@ import com.lagradost.cloudstream3.utils.UIHelper.dismissSafe
 import com.lagradost.cloudstream3.utils.UIHelper.getNavigationBarHeight
 import com.lagradost.cloudstream3.utils.UIHelper.getStatusBarHeight
 import com.lagradost.cloudstream3.utils.UIHelper.hideSystemUI
+import com.lagradost.cloudstream3.utils.UIHelper.navigate
 import com.lagradost.cloudstream3.utils.UIHelper.popCurrentPage
 import com.lagradost.cloudstream3.utils.UIHelper.showSystemUI
 import com.lagradost.cloudstream3.utils.UIHelper.toPx
 import com.lagradost.cloudstream3.utils.Vector2
 import com.lagradost.cloudstream3.utils.WatchTogetherViewModel
-import com.lagradost.cloudstream3.utils.loadExtractor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -1229,7 +1230,7 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
         val watchTogetherViewModel = ViewModelProvider(context as ViewModelStoreOwner)[WatchTogetherViewModel::class.java]
 
         CoroutineScope(Dispatchers.Main).launch  {
-            if (watchTogetherViewModel.connectedSocket) {
+            if (WatchTogetherViewModel.WatchTogetherEventBus.connectedSocket) {
                 watchTogetherViewModel.syncMessageFlow.collect { syncEvent ->
                     // Handle the player event here
                     when (syncEvent) {
@@ -1274,6 +1275,14 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
                         is SyncEvent.SourceUpdated -> {
                             // Handle SourceUpdated event
                             // syncEvent.source.id has the url of the video!
+                            val videoUrl = syncEvent.source.id
+                            val extractorLink = ExtractorLink("", "Video", videoUrl, "", Qualities.Unknown.value, type = INFER_TYPE)
+
+                            // Create a new video player instance and start playback
+                            val newVideoPlayer = GeneratorPlayer.newInstance(
+                                ExtractorLinkGenerator(listOf(extractorLink), emptyList())
+                            )
+                            activity.navigate(R.id.global_to_navigation_player, newVideoPlayer)
 
                         }
                         else -> {}
