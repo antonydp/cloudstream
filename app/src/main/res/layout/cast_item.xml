@@ -9,7 +9,7 @@
     android:layout_margin="5dp"
     android:foreground="@drawable/outline_drawable"
     app:cardBackgroundColor="@color/transparent"
-
+    android:focusable="true"
     app:cardCornerRadius="@dimen/rounded_image_radius"
     app:cardElevation="0dp">
 
@@ -17,7 +17,6 @@
         android:layout_width="100dp"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:focusable="true"
         android:padding="5dp">
         <!--app:cardCornerRadius="@dimen/roundedImageRadius"-->
         <FrameLayout

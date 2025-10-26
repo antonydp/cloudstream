@@ -10,14 +10,12 @@ import androidx.core.util.forEach
 import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import androidx.preference.PreferenceManager
-import com.lagradost.cloudstream3.AcraApplication.Companion.removeKey
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.databinding.FragmentSetupMediaBinding
-import com.lagradost.cloudstream3.mvvm.normalSafeApiCall
+import com.lagradost.cloudstream3.mvvm.safe
 import com.lagradost.cloudstream3.utils.DataStoreHelper
-import com.lagradost.cloudstream3.utils.UIHelper.fixPaddingStatusbar
-
+import com.lagradost.cloudstream3.utils.UIHelper.fixSystemBarsPadding
 
 class SetupFragmentMedia : Fragment() {
     var binding: FragmentSetupMediaBinding? = null
@@ -40,10 +38,10 @@ class SetupFragmentMedia : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        normalSafeApiCall {
-            fixPaddingStatusbar(binding?.setupRoot)
+        safe {
+            fixSystemBarsPadding(binding?.setupRoot)
 
-            val ctx = context ?: return@normalSafeApiCall
+            val ctx = context ?: return@safe
             val settingsManager = PreferenceManager.getDefaultSharedPreferences(ctx)
 
             val arrayAdapter =

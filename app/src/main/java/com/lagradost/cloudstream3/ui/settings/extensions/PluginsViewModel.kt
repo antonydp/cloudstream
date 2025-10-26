@@ -8,22 +8,25 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.preference.PreferenceManager
 import com.lagradost.cloudstream3.CommonActivity.showToast
 import com.lagradost.cloudstream3.PROVIDER_STATUS_DOWN
 import com.lagradost.cloudstream3.R
+import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.mvvm.launchSafe
 import com.lagradost.cloudstream3.plugins.PluginManager
 import com.lagradost.cloudstream3.plugins.PluginManager.getPluginPath
 import com.lagradost.cloudstream3.plugins.RepositoryManager
 import com.lagradost.cloudstream3.plugins.SitePlugin
-import com.lagradost.cloudstream3.ui.result.txt
+import com.lagradost.cloudstream3.utils.txt
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.Coroutines.main
 import com.lagradost.cloudstream3.utils.Coroutines.runOnMainThread
 import me.xdrop.fuzzywuzzy.FuzzySearch
 import java.io.File
 
+// String => repository url
 typealias Plugin = Pair<String, SitePlugin>
 /**
  * The boolean signifies if the plugin list should be scrolled to the top, used for searching.
@@ -34,13 +37,28 @@ class PluginsViewModel : ViewModel() {
 
     /** plugins is an unaltered list of plugins */
     private var plugins: List<PluginViewData> = emptyList()
+        set(value) {
+            // Also set all the plugin languages for easier filtering
+            value.map { pluginViewData ->
+                val language = pluginViewData.plugin.second.language?.lowercase()
+                pluginLanguages.add(
+                    when {
+                        language.isNullOrBlank() -> "none"
+                        else -> language.lowercase()
+                    }
+                )
+                // not sorting as most likely this is a language tag instead of name
+            }
+            field = value
+        }
+    var pluginLanguages = mutableSetOf<String>() // set to avoid duplicates
 
     /** filteredPlugins is a subset of plugins following the current search query and tv type selection */
     private var _filteredPlugins = MutableLiveData<PluginViewDataUpdate>()
     var filteredPlugins: LiveData<PluginViewDataUpdate> = _filteredPlugins
 
     val tvTypes = mutableListOf<String>()
-    var languages = listOf<String>()
+    var selectedLanguages = listOf<String>()
     private var currentQuery: String? = null
 
     companion object {
@@ -96,6 +114,7 @@ class PluginsViewModel : ViewModel() {
                                     R.string.batch_download_nothing_to_download_format,
                                     txt(R.string.plugin)
                                 )
+
                                 else -> txt(
                                     R.string.batch_download_start_format,
                                     list.size,
@@ -160,7 +179,7 @@ class PluginsViewModel : ViewModel() {
             PluginManager.downloadPlugin(
                 activity,
                 metadata.url,
-                metadata.name,
+                metadata.internalName,
                 repo,
                 isEnabled
             ) to message
@@ -181,8 +200,15 @@ class PluginsViewModel : ViewModel() {
     }
 
     private suspend fun updatePluginListPrivate(context: Context, repositoryUrl: String) {
+        val isAdult = PreferenceManager.getDefaultSharedPreferences(context)
+            .getStringSet(context.getString(R.string.prefer_media_type_key), emptySet())
+            ?.contains(TvType.NSFW.ordinal.toString()) == true
+
         val plugins = getPlugins(repositoryUrl)
-        val list = plugins.map { plugin ->
+        val list = plugins.filter {
+            // Show all non-nsfw plugins or all if nsfw is enabled
+            it.second.tvTypes?.contains(TvType.NSFW.name) != true || isAdult
+        }.map { plugin ->
             PluginViewData(plugin, isDownloaded(context, plugin.second.internalName, plugin.first))
         }
 
@@ -197,18 +223,18 @@ class PluginsViewModel : ViewModel() {
         if (tvTypes.isEmpty()) return this
         return this.filter {
             (it.plugin.second.tvTypes?.any { type -> tvTypes.contains(type) } == true) ||
-                    (tvTypes.contains("Others") && (it.plugin.second.tvTypes
+                    (tvTypes.contains(TvType.Others.name) && (it.plugin.second.tvTypes
                         ?: emptyList()).isEmpty())
         }
     }
 
     private fun List<PluginViewData>.filterLang(): List<PluginViewData> {
-        if (languages.isEmpty()) return this
+        if (selectedLanguages.isEmpty()) return this // do not filter
         return this.filter {
             if (it.plugin.second.language == null) {
-                return@filter languages.contains("none")
+                return@filter selectedLanguages.contains("none")
             }
-            languages.contains(it.plugin.second.language)
+            selectedLanguages.contains(it.plugin.second.language?.lowercase())
         }
     }
 
@@ -217,13 +243,25 @@ class PluginsViewModel : ViewModel() {
             // Return list to base state if no query
             this.sortedBy { it.plugin.second.name }
         } else {
-            this.sortedBy { -FuzzySearch.partialRatio(it.plugin.second.name.lowercase(), query.lowercase()) }
+            this.sortedBy {
+                -FuzzySearch.partialRatio(
+                    it.plugin.second.name.lowercase(),
+                    query.lowercase()
+                )
+            }
         }
     }
 
     fun updateFilteredPlugins() {
         _filteredPlugins.postValue(
             false to plugins.filterTvTypes().filterLang().sortByQuery(currentQuery)
+        )
+    }
+
+    fun clear() {
+        currentQuery = null
+        _filteredPlugins.postValue(
+            false to emptyList()
         )
     }
 

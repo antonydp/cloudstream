@@ -2,23 +2,23 @@ package com.lagradost.cloudstream3.ui.result
 
 import android.app.Activity
 import android.content.*
-import android.net.Uri
-import android.os.Build
-import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
-import androidx.core.content.FileProvider
-import androidx.core.net.toUri
+import androidx.annotation.MainThread
+import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.AcraApplication.Companion.context
+import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
+import com.lagradost.cloudstream3.actions.AlwaysAskAction
+import com.lagradost.cloudstream3.actions.VideoClickActionHolder
 import com.lagradost.cloudstream3.APIHolder.apis
-import com.lagradost.cloudstream3.APIHolder.getId
+import com.lagradost.cloudstream3.APIHolder.getApiFromNameNull
 import com.lagradost.cloudstream3.APIHolder.unixTime
 import com.lagradost.cloudstream3.APIHolder.unixTimeMS
-import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
 import com.lagradost.cloudstream3.CommonActivity.activity
 import com.lagradost.cloudstream3.CommonActivity.getCastSession
 import com.lagradost.cloudstream3.CommonActivity.showToast
@@ -26,43 +26,69 @@ import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.LoadResponse.Companion.getAniListId
 import com.lagradost.cloudstream3.LoadResponse.Companion.getMalId
 import com.lagradost.cloudstream3.LoadResponse.Companion.isMovie
+import com.lagradost.cloudstream3.LoadResponse.Companion.readIdFromString
 import com.lagradost.cloudstream3.metaproviders.SyncRedirector
 import com.lagradost.cloudstream3.mvvm.*
 import com.lagradost.cloudstream3.syncproviders.AccountManager
-import com.lagradost.cloudstream3.syncproviders.SyncAPI
+import com.lagradost.cloudstream3.syncproviders.AccountManager.Companion.secondsToReadable
 import com.lagradost.cloudstream3.syncproviders.providers.Kitsu
+import com.lagradost.cloudstream3.syncproviders.SyncAPI
 import com.lagradost.cloudstream3.ui.APIRepository
-import com.lagradost.cloudstream3.ui.WatchType
 import com.lagradost.cloudstream3.ui.download.DOWNLOAD_NAVIGATE_TO
 import com.lagradost.cloudstream3.ui.player.GeneratorPlayer
 import com.lagradost.cloudstream3.ui.player.IGenerator
-import com.lagradost.cloudstream3.ui.player.LoadType
+import com.lagradost.cloudstream3.ui.player.LOADTYPE_ALL
+import com.lagradost.cloudstream3.ui.player.LOADTYPE_CHROMECAST
+import com.lagradost.cloudstream3.ui.player.LOADTYPE_INAPP
+import com.lagradost.cloudstream3.ui.player.LOADTYPE_INAPP_DOWNLOAD
 import com.lagradost.cloudstream3.ui.player.RepoLinkGenerator
 import com.lagradost.cloudstream3.ui.player.SubtitleData
 import com.lagradost.cloudstream3.ui.result.EpisodeAdapter.Companion.getPlayerAction
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment
+import com.lagradost.cloudstream3.ui.WatchType
 import com.lagradost.cloudstream3.utils.*
-import com.lagradost.cloudstream3.utils.AppUtils.getNameFull
-import com.lagradost.cloudstream3.utils.AppUtils.isAppInstalled
-import com.lagradost.cloudstream3.utils.AppUtils.isConnectedToChromecast
+import com.lagradost.cloudstream3.utils.AppContextUtils.getNameFull
+import com.lagradost.cloudstream3.utils.AppContextUtils.isConnectedToChromecast
+import com.lagradost.cloudstream3.utils.AppContextUtils.setDefaultFocus
+import com.lagradost.cloudstream3.utils.AppContextUtils.sortSubs
 import com.lagradost.cloudstream3.utils.CastHelper.startCast
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.Coroutines.ioWork
 import com.lagradost.cloudstream3.utils.Coroutines.ioWorkSafe
 import com.lagradost.cloudstream3.utils.Coroutines.main
+import com.lagradost.cloudstream3.utils.DataStore.editor
+import com.lagradost.cloudstream3.utils.DataStore.getFolderName
+import com.lagradost.cloudstream3.utils.DataStore.setKey
+import com.lagradost.cloudstream3.utils.DataStoreHelper.currentAccount
+import com.lagradost.cloudstream3.utils.DataStoreHelper.deleteBookmarkedData
+import com.lagradost.cloudstream3.utils.DataStoreHelper.getAllBookmarkedData
+import com.lagradost.cloudstream3.utils.DataStoreHelper.getAllFavorites
+import com.lagradost.cloudstream3.utils.DataStoreHelper.getAllSubscriptions
+import com.lagradost.cloudstream3.utils.DataStoreHelper.getBookmarkedData
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getDub
+import com.lagradost.cloudstream3.utils.DataStoreHelper.getFavoritesData
+import com.lagradost.cloudstream3.utils.DataStoreHelper.getLastWatched
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getResultEpisode
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getResultSeason
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getResultWatchState
+import com.lagradost.cloudstream3.utils.DataStoreHelper.getSubscribedData
+import com.lagradost.cloudstream3.utils.DataStoreHelper.getVideoWatchState
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getViewPos
+import com.lagradost.cloudstream3.utils.DataStoreHelper.removeFavoritesData
+import com.lagradost.cloudstream3.utils.DataStoreHelper.removeSubscribedData
+import com.lagradost.cloudstream3.utils.DataStoreHelper.setBookmarkedData
 import com.lagradost.cloudstream3.utils.DataStoreHelper.setDub
+import com.lagradost.cloudstream3.utils.DataStoreHelper.setFavoritesData
 import com.lagradost.cloudstream3.utils.DataStoreHelper.setResultEpisode
 import com.lagradost.cloudstream3.utils.DataStoreHelper.setResultSeason
+import com.lagradost.cloudstream3.utils.DataStoreHelper.setResultWatchState
+import com.lagradost.cloudstream3.utils.DataStoreHelper.setSubscribedData
+import com.lagradost.cloudstream3.utils.DataStoreHelper.setVideoWatchState
+import com.lagradost.cloudstream3.utils.DataStoreHelper.updateSubscribedData
+import com.lagradost.cloudstream3.utils.SubtitleHelper.fromTagToEnglishLanguageName
 import com.lagradost.cloudstream3.utils.UIHelper.navigate
-import kotlinx.coroutines.*
-import java.io.File
 import java.util.concurrent.TimeUnit
-
+import kotlinx.coroutines.*
 
 /** This starts at 1 */
 data class EpisodeRange(
@@ -92,11 +118,12 @@ data class ResultData(
     val title: String,
     var syncData: Map<String, String>,
 
-    val posterImage: UiImage?,
-    val posterBackgroundImage: UiImage?,
+    val posterImage: String?,
+    val posterBackgroundImage: String?,
     val plotText: UiText,
     val apiName: UiText,
     val ratingText: UiText?,
+    val contentRatingText: UiText?,
     val vpnText: UiText?,
     val metaText: UiText?,
     val durationText: UiText?,
@@ -108,7 +135,29 @@ data class ResultData(
     val nextAiringDate: UiText?,
     val nextAiringEpisode: UiText?,
     val plotHeaderText: UiText,
+    val posterHeaders: Map<String, String>? = null,
 )
+
+data class CheckDuplicateData(
+    val name: String,
+    val year: Int?,
+    val syncData: Map<String, String>?
+)
+
+enum class LibraryListType {
+    BOOKMARKS,
+    FAVORITES,
+    SUBSCRIPTIONS
+}
+
+enum class EpisodeSortType {
+    NUMBER_ASC,
+    NUMBER_DESC,
+    RATING_HIGH_LOW,
+    RATING_LOW_HIGH,
+    DATE_NEWEST,
+    DATE_OLDEST
+}
 
 fun txt(status: DubStatus?): UiText? {
     return txt(
@@ -161,7 +210,11 @@ fun LoadResponse.toResultData(repo: APIRepository): ResultData {
 
                 else -> null
             }?.also {
-                nextAiringEpisode = txt(R.string.next_episode_format, airing.episode)
+                nextAiringEpisode = when (airing.season) {
+
+                    null -> txt(R.string.next_episode_format, airing.episode)
+                    else -> txt(R.string.next_season_episode_format, airing.season, airing.episode)
+                }
             }
         }
     }
@@ -176,12 +229,9 @@ fun LoadResponse.toResultData(repo: APIRepository): ResultData {
         ),
         nextAiringDate = nextAiringDate,
         nextAiringEpisode = nextAiringEpisode,
-        posterImage = img(
-            posterUrl, posterHeaders
-        ) ?: img(R.drawable.default_cover),
-        posterBackgroundImage = img(
-            backgroundPosterUrl ?: posterUrl, posterHeaders
-        ) ?: img(R.drawable.default_cover),
+        posterImage = posterUrl ?: backgroundPosterUrl,
+        posterHeaders = posterHeaders,
+        posterBackgroundImage = backgroundPosterUrl ?: posterUrl,
         titleText = txt(name),
         url = url,
         tags = tags ?: emptyList(),
@@ -191,9 +241,9 @@ fun LoadResponse.toResultData(repo: APIRepository): ResultData {
             R.string.cast_format,
             actors?.joinToString { it.actor.name }),
         plotText =
-        if (plot.isNullOrBlank()) txt(if (this is TorrentLoadResponse) R.string.torrent_no_plot else R.string.normal_no_plot) else txt(
-            plot!!
-        ),
+            if (plot.isNullOrBlank()) txt(if (this is TorrentLoadResponse) R.string.torrent_no_plot else R.string.normal_no_plot) else txt(
+                plot!!
+            ),
         backgroundPosterUrl = backgroundPosterUrl,
         title = name,
         typeText = txt(
@@ -210,12 +260,18 @@ fun LoadResponse.toResultData(repo: APIRepository): ResultData {
                 TvType.Live -> R.string.live_singular
                 TvType.Others -> R.string.other_singular
                 TvType.NSFW -> R.string.nsfw_singular
+                TvType.Music -> R.string.music_singlar
+                TvType.AudioBook -> R.string.audio_book_singular
+                TvType.CustomMedia -> R.string.custom_media_singluar
+                TvType.Audio -> R.string.audio_singluar
+                TvType.Podcast -> R.string.podcast_singluar
             }
         ),
         yearText = txt(year?.toString()),
         apiName = txt(apiName),
-        ratingText = rating?.div(1000f)
-            ?.let { if (it <= 0.1f) null else txt(R.string.rating_format, it) },
+        ratingText = score?.toStringNull(0.1, 10, 1, false, '.')
+            ?.let { txt(R.string.rating_format, it) },
+        contentRatingText = txt(contentRating),
         vpnText = txt(
             when (repo.vpnStatus) {
                 VPNStatus.None -> null
@@ -224,10 +280,9 @@ fun LoadResponse.toResultData(repo: APIRepository): ResultData {
             }
         ),
         metaText =
-        if (repo.providerType == ProviderType.MetaProvider) txt(R.string.provider_info_meta) else null,
+            if (repo.providerType == ProviderType.MetaProvider) txt(R.string.provider_info_meta) else null,
         durationText = if (dur == null || dur <= 0) null else txt(
-            R.string.duration_format,
-            dur
+            secondsToReadable(dur * 60, "0 mins")
         ),
         onGoingText = if (this is EpisodeResponse) {
             txt(
@@ -239,12 +294,29 @@ fun LoadResponse.toResultData(repo: APIRepository): ResultData {
             )
         } else null,
         noEpisodesFoundText =
-        if ((this is TvSeriesLoadResponse && this.episodes.isEmpty()) || (this is AnimeLoadResponse && !this.episodes.any { it.value.isNotEmpty() })) txt(
-            R.string.no_episodes_found
-        ) else null
+            if ((this is TvSeriesLoadResponse && this.episodes.isEmpty()) || (this is AnimeLoadResponse && !this.episodes.any { it.value.isNotEmpty() })) txt(
+                R.string.no_episodes_found
+            ) else null
     )
 }
 
+data class ExtractorSubtitleLink(
+    val name: String,
+    override val url: String,
+    override val referer: String,
+    override val headers: Map<String, String> = mapOf()
+) : IDownloadableMinimum
+
+fun LoadResponse.getId(): Int {
+    // this fixes an issue with outdated api as getLoadResponseIdFromUrl might be fucked
+    return (if (this is ResultViewModel2.LoadResponseFromSearch) this.id else null)
+        ?: getLoadResponseIdFromUrl(uniqueUrl, apiName)
+}
+
+private fun getLoadResponseIdFromUrl(url: String, apiName: String): Int {
+    return url.replace(getApiFromNameNull(apiName)?.mainUrl ?: "", "").replace("/", "")
+        .hashCode()
+}
 
 data class LinkProgress(
     val linksLoaded: Int,
@@ -266,6 +338,7 @@ data class ResumeWatchingStatus(
 data class LinkLoadingResult(
     val links: List<ExtractorLink>,
     val subs: List<SubtitleData>,
+    val syncData: HashMap<String, String>
 )
 
 sealed class SelectPopup {
@@ -341,6 +414,7 @@ class ResultViewModel2 : ViewModel() {
     private var currentMeta: SyncAPI.SyncResult? = null
     private var currentSync: Map<String, String>? = null
     private var currentIndex: EpisodeIndexer? = null
+    private var currentSorting: EpisodeSortType? = null
     private var currentRange: EpisodeRange? = null
     private var currentShowFillers: Boolean = false
     var currentRepo: APIRepository? = null
@@ -394,6 +468,18 @@ class ResultViewModel2 : ViewModel() {
         MutableLiveData(null)
     val selectedRange: LiveData<UiText?> = _selectedRange
 
+    private val _selectedSorting: MutableLiveData<UiText?> =
+        MutableLiveData(null)
+    val selectedSorting: LiveData<UiText?> = _selectedSorting
+
+    private val _selectedSortingIndex: MutableLiveData<Int> =
+        MutableLiveData(-1)
+    val selectedSortingIndex: LiveData<Int> = _selectedSortingIndex
+
+    private val _sortSelections: MutableLiveData<List<Pair<UiText, EpisodeSortType>>> =
+        MutableLiveData(emptyList())
+    val sortSelections: LiveData<List<Pair<UiText, EpisodeSortType>>> = _sortSelections
+
     private val _selectedSeason: MutableLiveData<UiText?> =
         MutableLiveData(null)
     val selectedSeason: LiveData<UiText?> = _selectedSeason
@@ -425,6 +511,9 @@ class ResultViewModel2 : ViewModel() {
     private val _subscribeStatus: MutableLiveData<Boolean?> = MutableLiveData(null)
     val subscribeStatus: LiveData<Boolean?> = _subscribeStatus
 
+    private val _favoriteStatus: MutableLiveData<Boolean?> = MutableLiveData(null)
+    val favoriteStatus: LiveData<Boolean?> = _favoriteStatus
+
     companion object {
         const val TAG = "RVM2"
         //private const val EPISODE_RANGE_SIZE = 20
@@ -435,36 +524,32 @@ class ResultViewModel2 : ViewModel() {
             return this?.firstOrNull { it.season == season }
         }
 
-        fun updateWatchStatus(currentResponse: LoadResponse, status: WatchType) {
-            val currentId = currentResponse.getId()
+        fun seasonToTxt(seasonData: SeasonData?, season: Int?): UiText? {
+            if (season == 0) {
+                return txt(R.string.no_season)
+            }
 
-            val currentWatchType = getResultWatchState(currentId)
-
-            DataStoreHelper.setResultWatchState(currentId, status.internalId)
-            val current = DataStoreHelper.getBookmarkedData(currentId)
-            val currentTime = System.currentTimeMillis()
-            DataStoreHelper.setBookmarkedData(
-                currentId,
-                DataStoreHelper.BookmarkedData(
-                    currentId,
-                    current?.bookmarkedTime ?: currentTime,
-                    currentTime,
-                    currentResponse.name,
-                    currentResponse.url,
-                    currentResponse.apiName,
-                    currentResponse.type,
-                    currentResponse.posterUrl,
-                    currentResponse.year
+            // If displaySeason is null then only show the name!
+            return if (seasonData?.name != null && seasonData.displaySeason == null) {
+                txt(seasonData.name)
+            } else {
+                val suffix = seasonData?.name?.let { " $it" } ?: ""
+                txt(
+                    R.string.season_format,
+                    txt(R.string.season),
+                    seasonData?.displaySeason ?: season,
+                    suffix
                 )
-            )
-            if (currentWatchType != status) {
-                MainActivity.bookmarksUpdatedEvent(true)
             }
         }
 
+        private fun List<SeasonData>?.getSeasonTxt(season: Int?): UiText? =
+            seasonToTxt(getSeason(season), season)
+
+
         private fun filterName(name: String?): String? {
             if (name == null) return null
-            Regex("[eE]pisode [0-9]*(.*)").find(name)?.groupValues?.get(1)?.let {
+            Regex("^[eE]pisode [0-9]*(.*)").find(name)?.groupValues?.get(1)?.let {
                 if (it.isEmpty())
                     return null
             }
@@ -601,21 +686,10 @@ class ResultViewModel2 : ViewModel() {
         }
 
         private fun getFolder(currentType: TvType, titleName: String): String {
-            val sanitizedFileName = VideoDownloadManager.sanitizeFilename(titleName)
-            return when (currentType) {
-                TvType.Anime -> "Anime/$sanitizedFileName"
-                TvType.Movie -> "Movies"
-                TvType.AnimeMovie -> "Movies"
-                TvType.TvSeries -> "TVSeries/$sanitizedFileName"
-                TvType.OVA -> "OVA"
-                TvType.Cartoon -> "Cartoons/$sanitizedFileName"
-                TvType.Torrent -> "Torrent"
-                TvType.Documentary -> "Documentaries"
-                TvType.AsianDrama -> "AsianDrama"
-                TvType.Live -> "LiveStreams"
-                TvType.NSFW -> "NSFW"
-                TvType.Others -> "Others"
-            }
+            return if (currentType.isEpisodeBased()) {
+                val sanitizedFileName = VideoDownloadManager.sanitizeFilename(titleName)
+                "${currentType.getFolderPrefix()}/$sanitizedFileName"
+            } else currentType.getFolderPrefix()
         }
 
         private fun downloadSubtitle(
@@ -628,7 +702,7 @@ class ResultViewModel2 : ViewModel() {
                 val folder = getFolder(meta.type ?: return, meta.mainName)
                 downloadSubtitle(
                     ctx,
-                    ExtractorSubtitleLink(link.name, link.url, ""),
+                    ExtractorSubtitleLink(link.name, link.url, "", link.headers),
                     fileName,
                     folder
                 )
@@ -670,13 +744,13 @@ class ResultViewModel2 : ViewModel() {
                     DOWNLOAD_HEADER_CACHE,
                     parentId.toString(),
                     VideoDownloadHelper.DownloadHeaderCached(
-                        apiName,
-                        url,
-                        currentType,
-                        currentHeaderName,
-                        currentPoster,
-                        parentId,
-                        System.currentTimeMillis(),
+                        apiName = apiName,
+                        url = url,
+                        type = currentType,
+                        name = currentHeaderName,
+                        poster = currentPoster,
+                        id = parentId,
+                        cacheTime = System.currentTimeMillis(),
                     )
                 )
 
@@ -687,15 +761,15 @@ class ResultViewModel2 : ViewModel() {
                     ), // 3 deep folder for faster acess
                     episode.id.toString(),
                     VideoDownloadHelper.DownloadEpisodeCached(
-                        episode.name,
-                        episode.poster,
-                        episode.episode,
-                        episode.season,
-                        episode.id,
-                        parentId,
-                        episode.rating,
-                        episode.description,
-                        System.currentTimeMillis(),
+                        name = episode.name,
+                        poster = episode.poster,
+                        episode = episode.episode,
+                        season = episode.season,
+                        id = episode.id,
+                        parentId = parentId,
+                        score = episode.score,
+                        description = episode.description,
+                        cacheTime = System.currentTimeMillis(),
                     )
                 )
 
@@ -711,22 +785,24 @@ class ResultViewModel2 : ViewModel() {
                 // 1. Checks if the lang should be downloaded
                 // 2. Makes it into the download format
                 // 3. Downloads it as a .vtt file
-                val downloadList = SubtitlesFragment.getDownloadSubsLanguageISO639_1()
-                subs?.let { subsList ->
-                    subsList.filter {
-                        downloadList.contains(
-                            SubtitleHelper.fromLanguageToTwoLetters(
-                                it.name,
-                                true
-                            )
-                        )
+                val downloadList = SubtitlesFragment.getDownloadSubsLanguageTagIETF()
+
+                subs?.filter { subtitle ->
+                    downloadList.any { langTagIETF ->
+                        subtitle.languageCode == langTagIETF ||
+                                subtitle.originalName.contains(
+                                    fromTagToEnglishLanguageName(
+                                        langTagIETF
+                                    ) ?: langTagIETF
+                                )
                     }
-                        .map { ExtractorSubtitleLink(it.name, it.url, "") }.take(3)
-                        .forEach { link ->
-                            val fileName = VideoDownloadManager.getFileName(context, meta)
-                            downloadSubtitle(context, link, fileName, folder)
-                        }
                 }
+                    ?.map { ExtractorSubtitleLink(it.name, it.url, "", it.headers) }
+                    ?.take(3) // max subtitles download hardcoded (?_?)
+                    ?.forEach { link ->
+                        val fileName = VideoDownloadManager.getFileName(context, meta)
+                        downloadSubtitle(context, link, fileName, folder)
+                    }
             } catch (e: Exception) {
                 logError(e)
             }
@@ -747,13 +823,17 @@ class ResultViewModel2 : ViewModel() {
                 val generator = RepoLinkGenerator(listOf(episode))
                 val currentLinks = mutableSetOf<ExtractorLink>()
                 val currentSubs = mutableSetOf<SubtitleData>()
-                generator.generateLinks(clearCache = false, LoadType.Chromecast, callback = {
-                    it.first?.let { link ->
-                        currentLinks.add(link)
-                    }
-                }, subtitleCallback = { sub ->
-                    currentSubs.add(sub)
-                })
+                generator.generateLinks(
+                    clearCache = false,
+                    sourceTypes = LOADTYPE_INAPP_DOWNLOAD,
+                    callback = {
+                        it.first?.let { link ->
+                            currentLinks.add(link)
+                        }
+                    },
+                    subtitleCallback = { sub ->
+                        currentSubs.add(sub)
+                    })
 
                 if (currentLinks.isEmpty()) {
                     main {
@@ -815,10 +895,81 @@ class ResultViewModel2 : ViewModel() {
     private val _selectPopup: MutableLiveData<SelectPopup?> = MutableLiveData(null)
     val selectPopup: LiveData<SelectPopup?> = _selectPopup
 
+    fun updateWatchStatus(
+        status: WatchType,
+        context: Context?,
+        loadResponse: LoadResponse? = null,
+        statusChangedCallback: ((statusChanged: Boolean) -> Unit)? = null
+    ) {
+        val (response, currentId) = loadResponse?.let { load ->
+            (load to load.getId())
+        } ?: ((currentResponse ?: return) to (currentId ?: return))
 
-    fun updateWatchStatus(status: WatchType) {
-        updateWatchStatus(currentResponse ?: return, status)
-        _watchStatus.postValue(status)
+        val currentStatus = getResultWatchState(currentId)
+
+        // If the current status is "NONE" and the new status is not "NONE",
+        // fetch the bookmarked data to check for duplicates, otherwise set this
+        // to an empty list, so that we don't show the duplicate warning dialog,
+        // but we still want to update the current bookmark and refresh the data anyway.
+        val bookmarkedData = if (currentStatus == WatchType.NONE && status != WatchType.NONE) {
+            getAllBookmarkedData()
+        } else emptyList()
+
+        checkAndWarnDuplicates(
+            context,
+            LibraryListType.BOOKMARKS,
+            CheckDuplicateData(
+                name = response.name,
+                year = response.year,
+                syncData = response.syncData,
+            ),
+            bookmarkedData
+        ) { shouldContinue: Boolean, duplicateIds: List<Int?> ->
+            if (!shouldContinue) return@checkAndWarnDuplicates
+
+            if (duplicateIds.isNotEmpty()) {
+                duplicateIds.forEach { duplicateId ->
+                    deleteBookmarkedData(duplicateId)
+                }
+            }
+
+            setResultWatchState(currentId, status.internalId)
+
+            // We don't need to store if WatchType.NONE.
+            // The key is removed in setResultWatchState, we don't want to
+            // re-add it again here if it was just removed.
+            if (status != WatchType.NONE) {
+                val current = getBookmarkedData(currentId)
+
+                setBookmarkedData(
+                    currentId,
+                    DataStoreHelper.BookmarkedData(
+                        current?.bookmarkedTime ?: unixTimeMS,
+                        currentId,
+                        unixTimeMS,
+                        response.name,
+                        response.url,
+                        response.apiName,
+                        response.type,
+                        response.posterUrl,
+                        response.year,
+                        response.syncData,
+                        plot = response.plot,
+                        tags = response.tags,
+                        score = response.score
+                    )
+                )
+            }
+
+            if (currentStatus != status) {
+                MainActivity.bookmarksUpdatedEvent(true)
+                MainActivity.reloadLibraryEvent(true)
+            }
+
+            _watchStatus.postValue(status)
+
+            statusChangedCallback?.invoke(true)
+        }
     }
 
     private fun startChromecast(
@@ -827,45 +978,287 @@ class ResultViewModel2 : ViewModel() {
         isVisible: Boolean = true
     ) {
         if (activity == null) return
-        loadLinks(result, isVisible = isVisible, LoadType.Chromecast) { data ->
+        loadLinks(
+            result,
+            isVisible = isVisible,
+            sourceTypes = LOADTYPE_CHROMECAST,
+            isCasting = true
+        ) { data ->
             startChromecast(activity, result, data.links, data.subs, 0)
         }
     }
 
     /**
-     * @return true if the new status is Subscribed, false if not. Null if not possible to subscribe.
-     **/
-    fun toggleSubscriptionStatus(): Boolean? {
-        val isSubscribed = _subscribeStatus.value ?: return null
-        val response = currentResponse ?: return null
-        if (response !is EpisodeResponse) return null
+     * Toggles the subscription status of an item.
+     *
+     * @param context The context to use for operations.
+     * @param statusChangedCallback A callback that is invoked when the subscription status changes.
+     *        It provides the new subscription status (true if subscribed, false if unsubscribed, null if action was canceled).
+     */
+    fun toggleSubscriptionStatus(
+        context: Context?,
+        statusChangedCallback: ((newStatus: Boolean?) -> Unit)? = null
+    ) {
+        val isSubscribed = _subscribeStatus.value ?: return
+        val response = currentResponse ?: return
+        val currentId = currentId ?: return
 
-        val currentId = response.getId()
+        // This might be a bit confusing, but even if the loadresponse is not a EpisodeResponse
+        // _subscribeStatus might be true.
 
         if (isSubscribed) {
-            DataStoreHelper.removeSubscribedData(currentId)
+            removeSubscribedData(currentId)
+            statusChangedCallback?.invoke(false)
+            _subscribeStatus.postValue(if (response is EpisodeResponse) false else null)
+            MainActivity.reloadLibraryEvent(true)
         } else {
-            val current = DataStoreHelper.getSubscribedData(currentId)
+            if (response !is EpisodeResponse) {
+                return
+            }
+            checkAndWarnDuplicates(
+                context,
+                LibraryListType.SUBSCRIPTIONS,
+                CheckDuplicateData(
+                    name = response.name,
+                    year = response.year,
+                    syncData = response.syncData,
+                ),
+                getAllSubscriptions(),
+            ) { shouldContinue: Boolean, duplicateIds: List<Int?> ->
+                if (!shouldContinue) {
+                    statusChangedCallback?.invoke(null)
+                    return@checkAndWarnDuplicates
+                }
 
-            DataStoreHelper.setSubscribedData(
-                currentId,
-                DataStoreHelper.SubscribedData(
+                if (duplicateIds.isNotEmpty()) {
+                    duplicateIds.forEach { duplicateId ->
+                        removeSubscribedData(duplicateId)
+                    }
+                }
+
+                val current = getSubscribedData(currentId)
+
+                setSubscribedData(
                     currentId,
-                    current?.bookmarkedTime ?: unixTimeMS,
-                    unixTimeMS,
-                    response.getLatestEpisodes(),
-                    response.name,
-                    response.url,
-                    response.apiName,
-                    response.type,
-                    response.posterUrl,
-                    response.year
+                    DataStoreHelper.SubscribedData(
+                        current?.subscribedTime ?: unixTimeMS,
+                        response.getLatestEpisodes(),
+                        currentId,
+                        unixTimeMS,
+                        response.name,
+                        response.url,
+                        response.apiName,
+                        response.type,
+                        response.posterUrl,
+                        response.year,
+                        response.syncData,
+                        plot = response.plot,
+                        score = response.score,
+                        tags = response.tags
+                    )
                 )
-            )
+
+                _subscribeStatus.postValue(true)
+                statusChangedCallback?.invoke(true)
+                MainActivity.reloadLibraryEvent(true)
+            }
+        }
+    }
+
+    /**
+     * Toggles the favorite status of an item.
+     *
+     * @param context The context to use.
+     * @param statusChangedCallback A callback that is invoked when the favorite status changes.
+     *        It provides the new favorite status (true if added to favorites, false if removed, null if action was canceled).
+     */
+    fun toggleFavoriteStatus(
+        context: Context?,
+        statusChangedCallback: ((newStatus: Boolean?) -> Unit)? = null
+    ) {
+        val isFavorite = _favoriteStatus.value ?: return
+        val response = currentResponse ?: return
+
+        val currentId = currentId ?: return
+
+        if (isFavorite) {
+            removeFavoritesData(currentId)
+            statusChangedCallback?.invoke(false)
+            _favoriteStatus.postValue(false)
+            MainActivity.reloadLibraryEvent(true)
+        } else {
+            checkAndWarnDuplicates(
+                context,
+                LibraryListType.FAVORITES,
+                CheckDuplicateData(
+                    name = response.name,
+                    year = response.year,
+                    syncData = response.syncData,
+                ),
+                getAllFavorites(),
+            ) { shouldContinue: Boolean, duplicateIds: List<Int?> ->
+                if (!shouldContinue) {
+                    statusChangedCallback?.invoke(null)
+                    return@checkAndWarnDuplicates
+                }
+
+                if (duplicateIds.isNotEmpty()) {
+                    duplicateIds.forEach { duplicateId ->
+                        removeFavoritesData(duplicateId)
+                    }
+                }
+
+                val current = getFavoritesData(currentId)
+
+                setFavoritesData(
+                    currentId,
+                    DataStoreHelper.FavoritesData(
+                        current?.favoritesTime ?: unixTimeMS,
+                        currentId,
+                        unixTimeMS,
+                        response.name,
+                        response.url,
+                        response.apiName,
+                        response.type,
+                        response.posterUrl,
+                        response.year,
+                        response.syncData,
+                        plot = response.plot,
+                        score = response.score,
+                        tags = response.tags
+                    )
+                )
+
+                _favoriteStatus.postValue(true)
+                statusChangedCallback?.invoke(true)
+                MainActivity.reloadLibraryEvent(true)
+            }
+        }
+    }
+
+    @MainThread
+    private fun checkAndWarnDuplicates(
+        context: Context?,
+        listType: LibraryListType,
+        checkDuplicateData: CheckDuplicateData,
+        data: List<DataStoreHelper.LibrarySearchResponse>,
+        checkDuplicatesCallback: (shouldContinue: Boolean, duplicateIds: List<Int?>) -> Unit
+    ) {
+        val whitespaceRegex = "\\s+".toRegex()
+        fun normalizeString(input: String): String {
+            /**
+             * Trim the input string and replace consecutive spaces with a single space.
+             * This covers some edge-cases where the title does not match exactly across providers,
+             * and one provider has the title with an extra whitespace. This is minor enough that
+             * it should still match in this case.
+             */
+            return input.trim().replace(whitespaceRegex, " ")
         }
 
-        _subscribeStatus.postValue(!isSubscribed)
-        return !isSubscribed
+        val syncData = checkDuplicateData.syncData
+
+        val imdbId = getImdbIdFromSyncData(syncData)
+        val tmdbId = getTMDbIdFromSyncData(syncData)
+        val malId = syncData?.get(AccountManager.malApi.idPrefix)
+        val aniListId = syncData?.get(AccountManager.aniListApi.idPrefix)
+        val normalizedName = normalizeString(checkDuplicateData.name)
+        val year = checkDuplicateData.year
+
+        val duplicateEntries = data.filter { it: DataStoreHelper.LibrarySearchResponse ->
+            val librarySyncData = it.syncData
+            val yearCheck = year == it.year || year == null || it.year == null
+
+            val checks = listOf(
+                { imdbId != null && getImdbIdFromSyncData(librarySyncData) == imdbId },
+                { tmdbId != null && getTMDbIdFromSyncData(librarySyncData) == tmdbId },
+                { malId != null && librarySyncData?.get(AccountManager.malApi.idPrefix) == malId },
+                { aniListId != null && librarySyncData?.get(AccountManager.aniListApi.idPrefix) == aniListId },
+                { normalizedName == normalizeString(it.name) && yearCheck }
+            )
+
+            checks.any { it() }
+        }
+
+        if (duplicateEntries.isEmpty() || context == null) {
+            checkDuplicatesCallback.invoke(true, emptyList())
+            return
+        }
+
+        val replaceMessage = if (duplicateEntries.size > 1) {
+            R.string.duplicate_replace_all
+        } else R.string.duplicate_replace
+
+        val message = if (duplicateEntries.size == 1) {
+            val list = when (listType) {
+                LibraryListType.BOOKMARKS -> getResultWatchState(
+                    duplicateEntries[0].id ?: 0
+                ).stringRes
+
+                LibraryListType.FAVORITES -> R.string.favorites_list_name
+                LibraryListType.SUBSCRIPTIONS -> R.string.subscription_list_name
+            }
+
+            context.getString(
+                R.string.duplicate_message_single,
+                "${normalizeString(duplicateEntries[0].name)} (${context.getString(list)}) — ${duplicateEntries[0].apiName}"
+            )
+        } else {
+            val bulletPoints = duplicateEntries.joinToString("\n") {
+                val list = when (listType) {
+                    LibraryListType.BOOKMARKS -> getResultWatchState(it.id ?: 0).stringRes
+                    LibraryListType.FAVORITES -> R.string.favorites_list_name
+                    LibraryListType.SUBSCRIPTIONS -> R.string.subscription_list_name
+                }
+
+                "• ${it.apiName}: ${normalizeString(it.name)} (${context.getString(list)})"
+            }
+
+            context.getString(R.string.duplicate_message_multiple, bulletPoints)
+        }
+
+        val builder: AlertDialog.Builder = AlertDialog.Builder(context)
+
+        val dialogClickListener =
+            DialogInterface.OnClickListener { _, which ->
+                when (which) {
+                    DialogInterface.BUTTON_POSITIVE -> {
+                        checkDuplicatesCallback.invoke(true, emptyList())
+                    }
+
+                    DialogInterface.BUTTON_NEGATIVE -> {
+                        checkDuplicatesCallback.invoke(false, emptyList())
+                    }
+
+                    DialogInterface.BUTTON_NEUTRAL -> {
+                        checkDuplicatesCallback.invoke(true, duplicateEntries.map { it.id })
+                    }
+                }
+            }
+
+        builder.setTitle(R.string.duplicate_title)
+            .setMessage(message)
+            .setPositiveButton(R.string.duplicate_add, dialogClickListener)
+            .setNegativeButton(R.string.duplicate_cancel, dialogClickListener)
+            .setNeutralButton(replaceMessage, dialogClickListener)
+            .show().setDefaultFocus()
+    }
+
+    private fun getImdbIdFromSyncData(syncData: Map<String, String>?): String? {
+        return safe {
+            val imdbId = readIdFromString(
+                syncData?.get(AccountManager.simklApi.idPrefix)
+            )[SimklSyncServices.Imdb]
+            if (imdbId == "null") null else imdbId
+        }
+    }
+
+    private fun getTMDbIdFromSyncData(syncData: Map<String, String>?): String? {
+        return safe {
+            val tmdbId = readIdFromString(
+                syncData?.get(AccountManager.simklApi.idPrefix)
+            )[SimklSyncServices.Tmdb]
+            if (tmdbId == "null") null else tmdbId
+        }
     }
 
     private fun startChromecast(
@@ -902,7 +1295,7 @@ class ResultViewModel2 : ViewModel() {
         _loadedLinks.postValue(null)
     }
 
-    private fun postPopup(text: UiText, options: List<UiText>, callback: suspend (Int?) -> Unit) {
+    fun postPopup(text: UiText, options: List<UiText>, callback: suspend (Int?) -> Unit) {
         _selectPopup.postValue(
             SelectPopup.SelectText(
                 text,
@@ -938,34 +1331,52 @@ class ResultViewModel2 : ViewModel() {
     private fun loadLinks(
         result: ResultEpisode,
         isVisible: Boolean,
-        type: LoadType,
+        sourceTypes: Set<ExtractorLinkType> = LOADTYPE_ALL,
         clearCache: Boolean = false,
+        isCasting: Boolean = false,
         work: suspend (CoroutineScope.(LinkLoadingResult) -> Unit)
     ) {
         currentLoadLinkJob?.cancel()
         currentLoadLinkJob = ioSafe {
-            val links = loadLinks(
-                result,
-                isVisible = isVisible,
-                type = type,
-                clearCache = clearCache
-            )
-            if (!this.isActive) return@ioSafe
-            work(links)
+            val parentJob = this.coroutineContext.job
+            launch {
+                val links = loadLinks(
+                    result,
+                    isVisible = isVisible,
+                    sourceTypes = sourceTypes,
+                    clearCache = clearCache,
+                    isCasting = isCasting
+                )
+                // Cancel child = skip link loading
+                // Cancel parent = dismiss dialog
+                if (parentJob.isCancelled) {
+                    return@launch
+                }
+                work(links)
+            }
         }
     }
 
     private var currentLoadLinkJob: Job? = null
     private fun acquireSingleLink(
         result: ResultEpisode,
-        type: LoadType,
+        sourceTypes: Set<ExtractorLinkType>,
         text: UiText,
-        callback: (Pair<LinkLoadingResult, Int>) -> Unit,
+        isCasting: Boolean = false,
+        callback: (Pair<LinkLoadingResult, Int>) -> Unit
     ) {
-        loadLinks(result, isVisible = true, type) { links ->
+        // TODO Add skip loading here
+        loadLinks(result, isVisible = true, sourceTypes, isCasting = isCasting) { links ->
+            // Could not find a better way to do this
+            //val context = AcraApplication.context
             postPopup(
                 text,
-                links.links.map { txt("${it.name} ${Qualities.getStringByInt(it.quality)}") }) {
+                links.links.map { txt("${it.name} ${Qualities.getStringByInt(it.quality)}") }
+                /*.amap {
+                val size =
+                    it.getVideoSize()?.let { size -> " " + formatFileSize(context, size) } ?: ""
+                txt("${it.name} ${Qualities.getStringByInt(it.quality)}$size")
+                }*/) {
                 callback.invoke(links to (it ?: return@postPopup))
             }
         }
@@ -976,7 +1387,7 @@ class ResultViewModel2 : ViewModel() {
         text: UiText,
         callback: (Pair<LinkLoadingResult, Int>) -> Unit,
     ) {
-        loadLinks(result, isVisible = true, type = LoadType.Unknown) { links ->
+        loadLinks(result, isVisible = true) { links ->
             postPopup(
                 text,
                 links.subs.map { txt(it.name) })
@@ -986,11 +1397,17 @@ class ResultViewModel2 : ViewModel() {
         }
     }
 
+    fun skipLoading() {
+        currentLoadLinkJob?.cancelChildren()
+        currentLoadLinkJob = null
+    }
+
     private suspend fun CoroutineScope.loadLinks(
         result: ResultEpisode,
         isVisible: Boolean,
-        type: LoadType,
+        sourceTypes: Set<ExtractorLinkType> = LOADTYPE_ALL,
         clearCache: Boolean = false,
+        isCasting: Boolean = false
     ): LinkLoadingResult {
         val tempGenerator = RepoLinkGenerator(listOf(result))
 
@@ -1003,187 +1420,84 @@ class ResultViewModel2 : ViewModel() {
         }
         try {
             updatePage()
-            tempGenerator.generateLinks(clearCache, type, { (link, _) ->
-                if (link != null) {
-                    links += link
+            tempGenerator.generateLinks(
+                clearCache,
+                sourceTypes = sourceTypes,
+                callback = { (link, _) ->
+                    if (link != null) {
+                        links += link
+                        updatePage()
+                    }
+                },
+                subtitleCallback = { sub ->
+                    subs += sub
                     updatePage()
-                }
-            }, { sub ->
-                subs += sub
-                updatePage()
-            })
+                },
+                isCasting = isCasting
+            )
+        } catch (e: CancellationException) {
+            // Do nothing
         } catch (e: Exception) {
             logError(e)
         } finally {
             _loadedLinks.postValue(null)
         }
 
-        return LinkLoadingResult(sortUrls(links), sortSubs(subs))
+        return LinkLoadingResult(
+            sortUrls(links),
+            sortSubs(subs),
+            HashMap(currentResponse?.syncData ?: emptyMap())
+        )
     }
-
-    private fun launchActivity(
-        activity: Activity?,
-        resumeApp: ResultResume,
-        id: Int? = null,
-        work: suspend (Intent.(Activity) -> Unit)
-    ): Job? {
-        val act = activity ?: return null
-        return CoroutineScope(Dispatchers.IO).launch {
-            try {
-                resumeApp.launch(id) {
-                    work(act)
-                }
-            } catch (t: Throwable) {
-                logError(t)
-                main {
-                    if (t is ActivityNotFoundException) {
-                        showToast(txt(R.string.app_not_found_error), Toast.LENGTH_LONG)
-                    } else {
-                        showToast(t.toString(), Toast.LENGTH_LONG)
-                    }
-                }
-            }
-        }
-    }
-
-    private fun playInWebVideo(
-        activity: Activity?,
-        link: ExtractorLink,
-        title: String?,
-        posterUrl: String?,
-        subtitles: List<SubtitleData>
-    ) = launchActivity(activity, WEB_VIDEO) {
-        setDataAndType(Uri.parse(link.url), "video/*")
-
-        putExtra("subs", subtitles.map { it.url.toUri() }.toTypedArray())
-        title?.let { putExtra("title", title) }
-        posterUrl?.let { putExtra("poster", posterUrl) }
-        val headers = Bundle().apply {
-            if (link.referer.isNotBlank())
-                putString("Referer", link.referer)
-            putString("User-Agent", USER_AGENT)
-            for ((key, value) in link.headers) {
-                putString(key, value)
-            }
-        }
-        putExtra("android.media.intent.extra.HTTP_HEADERS", headers)
-        putExtra("secure_uri", true)
-    }
-
-    private fun playWithMpv(
-        activity: Activity?,
-        id: Int,
-        link: ExtractorLink,
-        subtitles: List<SubtitleData>,
-        resume: Boolean = true,
-    ) = launchActivity(activity, MPV, id) {
-        putExtra("subs", subtitles.map { it.url.toUri() }.toTypedArray())
-        putExtra("subs.name", subtitles.map { it.name }.toTypedArray())
-        putExtra("subs.filename", subtitles.map { it.name }.toTypedArray())
-        setDataAndType(Uri.parse(link.url), "video/*")
-        component = MPV_COMPONENT
-        putExtra("secure_uri", true)
-        putExtra("return_result", true)
-        val position = getViewPos(id)?.position
-        if (resume && position != null)
-            putExtra("position", position.toInt())
-    }
-
-    // https://wiki.videolan.org/Android_Player_Intents/
-    private fun playWithVlc(
-        activity: Activity?,
-        data: LinkLoadingResult,
-        id: Int,
-        resume: Boolean = true,
-        // if it is only a single link then resume works correctly
-        singleFile: Boolean? = null
-    ) = launchActivity(activity, VLC, id) { act ->
-        addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-        addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-
-        val outputDir = act.cacheDir
-
-        if (singleFile ?: (data.links.size == 1)) {
-            setDataAndType(data.links.first().url.toUri(), "video/*")
-        } else {
-            val outputFile = File.createTempFile("mirrorlist", ".m3u8", outputDir)
-
-            var text = "#EXTM3U"
-
-            // With subtitles it doesn't work for no reason :(
-//            for (sub in data.subs) {
-//                text += "\n#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"${sub.name}\",DEFAULT=NO,AUTOSELECT=NO,FORCED=NO,LANGUAGE=\"${sub.name}\",URI=\"${sub.url}\""
-//            }
-            for (link in data.links) {
-                text += "\n#EXTINF:, ${link.name}\n${link.url}"
-            }
-            outputFile.writeText(text)
-
-            setDataAndType(
-                FileProvider.getUriForFile(
-                    act,
-                    act.applicationContext.packageName + ".provider",
-                    outputFile
-                ), "video/*"
-            )
-        }
-
-        val position = if (resume) {
-            getViewPos(id)?.position ?: 0L
-        } else {
-            1L
-        }
-
-        // Component no longer safe to use in A13 for VLC
-        // https://code.videolan.org/videolan/vlc-android/-/issues/2776
-        // This will likely need to be updated once VLC fixes their documentation.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            component = VLC_COMPONENT
-        }
-
-        putExtra("from_start", !resume)
-        putExtra("position", position)
-    }
-
 
     fun handleAction(click: EpisodeClickEvent) =
         viewModelScope.launchSafe {
             handleEpisodeClickEvent(click)
         }
 
-    data class ExternalApp(
-        val packageString: String,
-        val name: Int,
-        val action: Int,
-    )
-
-    private val apps = listOf(
-        ExternalApp(
-            VLC_PACKAGE,
-            R.string.player_settings_play_in_vlc,
-            ACTION_PLAY_EPISODE_IN_VLC_PLAYER
-        ), ExternalApp(
-            WEB_VIDEO_CAST_PACKAGE,
-            R.string.player_settings_play_in_web,
-            ACTION_PLAY_EPISODE_IN_WEB_VIDEO
-        ),
-        ExternalApp(
-            MPV_PACKAGE,
-            R.string.player_settings_play_in_mpv,
-            ACTION_PLAY_EPISODE_IN_MPV
-        )
-    )
-
     fun releaseEpisodeSynopsis() {
         _episodeSynopsis.postValue(null)
     }
+
+    private fun markEpisodes(
+        editor: Editor,
+        episodeIds: Array<String>,
+        watchState: VideoWatchState
+    ) {
+        val watchStateString = DataStore.mapper.writeValueAsString(watchState)
+        episodeIds.forEach {
+            if (getVideoWatchState(it.toInt()) != watchState) {
+                editor.setKeyRaw(
+                    getFolderName("$currentAccount/$VIDEO_WATCH_STATE", it),
+                    watchStateString
+                )
+            }
+        }
+    }
+
+    private fun getEpisodesIdsBySeason(season: Int): HashMap<Int, Array<String>> {
+        val result = currentEpisodes.entries
+            .asSequence()
+            .filter { it.key.season <= season && it.key.dubStatus == preferDubStatus }
+            .flatMap { entry ->
+                entry.value.asSequence().map { entry.key.season to it.id.toString() }
+            }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { (_, ids) -> ids.toTypedArray() }
+            .toMap(HashMap())
+
+        if (season != 0) {
+            result.remove(0)
+        }
+        return result
+    }
+
 
     private suspend fun handleEpisodeClickEvent(click: EpisodeClickEvent) {
         when (click.action) {
             ACTION_SHOW_OPTIONS -> {
                 val options = mutableListOf<Pair<UiText, Int>>()
+
                 if (activity?.isConnectedToChromecast() == true) {
                     options.addAll(
                         listOf(
@@ -1192,23 +1506,10 @@ class ResultViewModel2 : ViewModel() {
                         )
                     )
                 }
+
                 options.add(txt(R.string.episode_action_play_in_app) to ACTION_PLAY_EPISODE_IN_PLAYER)
-
-                for (app in apps) {
-                    if (activity?.isAppInstalled(app.packageString) == true) {
-                        options.add(
-                            txt(
-                                R.string.episode_action_play_in_format,
-                                txt(app.name)
-                            ) to app.action
-                        )
-                    }
-                }
-
                 options.addAll(
                     listOf(
-                        txt(R.string.episode_action_play_in_browser) to ACTION_PLAY_EPISODE_IN_BROWSER,
-                        txt(R.string.episode_action_copy_link) to ACTION_COPY_LINK,
                         txt(R.string.episode_action_auto_download) to ACTION_DOWNLOAD_EPISODE,
                         txt(R.string.episode_action_download_mirror) to ACTION_DOWNLOAD_MIRROR,
                         txt(R.string.episode_action_download_subtitle) to ACTION_DOWNLOAD_EPISODE_SUBTITLE_MIRROR,
@@ -1216,17 +1517,26 @@ class ResultViewModel2 : ViewModel() {
                     )
                 )
 
+                options.addAll(
+                    VideoClickActionHolder.makeOptionMap(activity, click.data)
+                )
+
                 // Do not add mark as watched on movies
                 if (!listOf(TvType.Movie, TvType.AnimeMovie).contains(click.data.tvType)) {
                     val isWatched =
-                        DataStoreHelper.getVideoWatchState(click.data.id) == VideoWatchState.Watched
+                        getVideoWatchState(click.data.id) == VideoWatchState.Watched
 
                     val watchedText = if (isWatched) R.string.action_remove_from_watched
                     else R.string.action_mark_as_watched
 
-                    options.add(txt(watchedText) to ACTION_MARK_AS_WATCHED)
-                }
+                    val markUpToText =
+                        if (isWatched) R.string.action_remove_mark_watched_up_to_this_episode
+                        else R.string.action_mark_watched_up_to_this_episode
 
+                    options.add(txt(watchedText) to ACTION_MARK_AS_WATCHED)
+
+                    options.add(txt(markUpToText) to ACTION_MARK_WATCHED_UP_TO_THIS_EPISODE)
+                }
                 postPopup(
                     txt(
                         activity?.getNameFull(
@@ -1317,7 +1627,7 @@ class ResultViewModel2 : ViewModel() {
                 val response = currentResponse ?: return
                 acquireSingleLink(
                     click.data,
-                    LoadType.InAppDownload,
+                    LOADTYPE_INAPP_DOWNLOAD,
                     txt(R.string.episode_action_download_mirror)
                 ) { (result, index) ->
                     ioSafe {
@@ -1347,50 +1657,24 @@ class ResultViewModel2 : ViewModel() {
                     loadLinks(
                         click.data,
                         isVisible = false,
-                        type = LoadType.InApp,
+                        LOADTYPE_INAPP,
                         clearCache = true
                     )
                 }
+                showToast(
+                    R.string.links_reloaded_toast,
+                    Toast.LENGTH_SHORT
+                )
             }
 
             ACTION_CHROME_CAST_MIRROR -> {
                 acquireSingleLink(
                     click.data,
-                    LoadType.Chromecast,
-                    txt(R.string.episode_action_chromecast_mirror)
+                    LOADTYPE_CHROMECAST,
+                    txt(R.string.episode_action_chromecast_mirror),
+                    isCasting = true
                 ) { (result, index) ->
                     startChromecast(activity, click.data, result.links, result.subs, index)
-                }
-            }
-
-            ACTION_PLAY_EPISODE_IN_BROWSER -> acquireSingleLink(
-                click.data,
-                LoadType.Browser,
-                txt(R.string.episode_action_play_in_browser)
-            ) { (result, index) ->
-                try {
-                    val i = Intent(Intent.ACTION_VIEW)
-                    i.data = Uri.parse(result.links[index].url)
-                    activity?.startActivity(i)
-                } catch (e: Exception) {
-                    logError(e)
-                }
-            }
-
-            ACTION_COPY_LINK -> {
-                acquireSingleLink(
-                    click.data,
-                    LoadType.ExternalApp,
-                    txt(R.string.episode_action_copy_link)
-                ) { (result, index) ->
-                    val act = activity ?: return@acquireSingleLink
-                    val serviceClipboard =
-                        (act.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager?)
-                            ?: return@acquireSingleLink
-                    val link = result.links[index]
-                    val clip = ClipData.newPlainText(link.name, link.url)
-                    serviceClipboard.setPrimaryClip(clip)
-                    showToast(R.string.copy_link_toast, Toast.LENGTH_SHORT)
                 }
             }
 
@@ -1398,86 +1682,124 @@ class ResultViewModel2 : ViewModel() {
                 startChromecast(activity, click.data)
             }
 
-            ACTION_PLAY_EPISODE_IN_VLC_PLAYER -> {
-                loadLinks(click.data, isVisible = true, LoadType.ExternalApp) { links ->
-                    if (links.links.isEmpty()) {
-                        showToast(R.string.no_links_found_toast, Toast.LENGTH_SHORT)
-                        return@loadLinks
-                    }
+            ACTION_PLAY_EPISODE_IN_PLAYER -> {
+                val list = HashMap<String, String>(currentResponse?.syncData ?: emptyMap())
 
-                    playWithVlc(
-                        activity,
-                        links,
-                        click.data.id
+                generator?.also {
+                    it.getAll() // I know kinda shit to iterate all, but it is 100% sure to work
+                        ?.indexOfFirst { value -> value is ResultEpisode && value.id == click.data.id }
+                        ?.let { index ->
+                            if (index >= 0)
+                                it.goto(index)
+                        }
+                }
+                if (currentResponse?.type == TvType.CustomMedia) {
+                    generator?.generateLinks(
+                        clearCache = true,
+                        LOADTYPE_ALL,
+                        callback = {},
+                        subtitleCallback = {})
+                } else {
+                    activity?.navigate(
+                        R.id.global_to_navigation_player,
+                        GeneratorPlayer.newInstance(
+                            generator ?: return, list
+                        )
                     )
                 }
-            }
-
-            ACTION_PLAY_EPISODE_IN_WEB_VIDEO -> acquireSingleLink(
-                click.data,
-                LoadType.Chromecast,
-                txt(
-                    R.string.episode_action_play_in_format,
-                    txt(R.string.player_settings_play_in_web)
-                )
-            ) { (result, index) ->
-                playInWebVideo(
-                    activity,
-                    result.links[index],
-                    click.data.name ?: click.data.headerName,
-                    click.data.poster,
-                    result.subs
-                )
-            }
-
-            ACTION_PLAY_EPISODE_IN_MPV -> acquireSingleLink(
-                click.data,
-                LoadType.Chromecast,
-                txt(
-                    R.string.episode_action_play_in_format,
-                    txt(R.string.player_settings_play_in_mpv)
-                )
-            ) { (result, index) ->
-                playWithMpv(
-                    activity,
-                    click.data.id,
-                    result.links[index],
-                    result.subs
-                )
-            }
-
-            ACTION_PLAY_EPISODE_IN_PLAYER -> {
-                val data = currentResponse?.syncData?.toList() ?: emptyList()
-                val list =
-                    HashMap<String, String>().apply { putAll(data) }
-
-                activity?.navigate(
-                    R.id.global_to_navigation_player,
-                    GeneratorPlayer.newInstance(
-                        generator?.also {
-                            it.getAll() // I know kinda shit to iterate all, but it is 100% sure to work
-                                ?.indexOfFirst { value -> value is ResultEpisode && value.id == click.data.id }
-                                ?.let { index ->
-                                    if (index >= 0)
-                                        it.goto(index)
-                                }
-                        } ?: return, list
-                    )
-                )
             }
 
             ACTION_MARK_AS_WATCHED -> {
                 val isWatched =
-                    DataStoreHelper.getVideoWatchState(click.data.id) == VideoWatchState.Watched
-
+                    getVideoWatchState(click.data.id) == VideoWatchState.Watched
                 if (isWatched) {
-                    DataStoreHelper.setVideoWatchState(click.data.id, VideoWatchState.None)
+                    setVideoWatchState(click.data.id, VideoWatchState.None)
                 } else {
-                    DataStoreHelper.setVideoWatchState(click.data.id, VideoWatchState.Watched)
+                    setVideoWatchState(click.data.id, VideoWatchState.Watched)
                 }
-
                 // Kinda dirty to reload all episodes :(
                 reloadEpisodes()
+            }
+
+            ACTION_MARK_WATCHED_UP_TO_THIS_EPISODE -> ioSafe {
+                val editor = context?.let { it1 -> editor(it1, false) }
+
+                if (editor != null) {
+                    val (clickSeason, clickEpisode) = click.data.let {
+                        (it.season ?: 0) to it.episode
+                    }
+                    val watchState =
+                        if (getVideoWatchState(click.data.id) == VideoWatchState.Watched) VideoWatchState.None else VideoWatchState.Watched
+                    val seasons = getEpisodesIdsBySeason(clickSeason)
+
+                    seasons.keys.forEach { currentSeason ->
+                        var episodeIds = seasons[currentSeason] ?: emptyArray()
+                        if (currentSeason == clickSeason) episodeIds =
+                            episodeIds.sliceArray(0 until clickEpisode)
+                        markEpisodes(editor, episodeIds, watchState)
+                    }
+                    editor.apply()
+                    reloadEpisodes()
+                }
+            }
+
+            else -> {
+                val action = VideoClickActionHolder.getActionById(click.action) ?: return
+
+                // Special handling for AlwaysAskAction - show player selection dialog
+                if (action is AlwaysAskAction) {
+                    activity?.let { ctx ->
+                        // Show player selection dialog
+                        val players = VideoClickActionHolder.getPlayers(ctx)
+                        val options = mutableListOf<Pair<UiText, Int>>()
+
+                        // Add internal player option
+                        options.add(txt(R.string.episode_action_play_in_app) to ACTION_PLAY_EPISODE_IN_PLAYER)
+
+                        // Add external player options 
+                        options.addAll(players.filter { it !is AlwaysAskAction }.map { player ->
+                            player.name to (VideoClickActionHolder.uniqueIdToId(player.uniqueId())
+                                ?: ACTION_PLAY_EPISODE_IN_PLAYER)
+                        })
+
+                        postPopup(
+                            txt(R.string.player_pref),
+                            options
+                        ) { selectedAction ->
+                            if (selectedAction != null) {
+                                handleEpisodeClickEvent(
+                                    click.copy(action = selectedAction)
+                                )
+                            }
+                        }
+                    }
+                    return
+                }
+
+                activity?.setKey("last_click_action", action.uniqueId())
+                if (action.oneSource) {
+                    acquireSingleLink(
+                        click.data,
+                        action.sourceTypes,
+                        action.name
+                    ) { (result, index) ->
+                        action.runActionSafe(
+                            activity,
+                            click.data,
+                            result,
+                            index
+                        )
+                    }
+                } else {
+                    loadLinks(click.data, isVisible = true, action.sourceTypes) { links ->
+                        action.runActionSafe(
+                            activity,
+                            click.data,
+                            links,
+                            null
+                        )
+                    }
+                }
             }
         }
     }
@@ -1494,7 +1816,7 @@ class ResultViewModel2 : ViewModel() {
 
             if (meta != null) {
                 duration = duration ?: meta.duration
-                rating = rating ?: meta.publicScore
+                score = score ?: meta.publicScore
                 tags = tags ?: meta.genres
                 plot = if (plot.isNullOrBlank()) meta.synopsis else plot
                 posterUrl = posterUrl ?: meta.posterUrl ?: meta.backgroundPosterUrl
@@ -1527,11 +1849,11 @@ class ResultViewModel2 : ViewModel() {
                 syncData[k] = v
             }
 
-            argamap(
+            runAllAsync(
                 {
-                    if (this !is AnimeLoadResponse) return@argamap
+                    if (this !is AnimeLoadResponse) return@runAllAsync
                     // already exist, no need to run getTracker
-                    if (this.getAniListId() != null && this.getMalId() != null) return@argamap
+                    if (this.getAniListId() != null && this.getMalId() != null) return@runAllAsync
 
                     val res = APIHolder.getTracker(
                         listOfNotNull(
@@ -1540,10 +1862,11 @@ class ResultViewModel2 : ViewModel() {
                             this.japName
                         ).filter { it.length > 2 }
                             .distinct().map {
-                            // this actually would be nice if we improved a bit as 3rd season == season 3 == III ect
+                                // this actually would be nice if we improved a bit as 3rd season == season 3 == III ect
                                 // right now it just removes the dubbed status
-                                it.lowercase().replace(Regex("""\(?[ds]ub(bed)?\)?(\s|$)""") , "").trim()
-                                            },
+                                it.lowercase().replace(Regex("""\(?[ds]ub(bed)?\)?(\s|$)"""), "")
+                                    .trim()
+                            },
                         TrackerType.getTypes(this.type),
                         this.year
                     )
@@ -1559,7 +1882,7 @@ class ResultViewModel2 : ViewModel() {
                         }
                     ) {
                         // getTracker fucked up as it conflicts with current implementation
-                        return@argamap
+                        return@runAllAsync
                     }
 
                     // set all the new data, prioritise old correct data
@@ -1574,18 +1897,18 @@ class ResultViewModel2 : ViewModel() {
                     backgroundPosterUrl = backgroundPosterUrl ?: res?.cover
                 },
                 {
-                    if (meta == null) return@argamap
+                    if (meta == null) return@runAllAsync
                     addTrailer(meta.trailers)
                 }, {
-                    if (this !is AnimeLoadResponse) return@argamap
+                    if (this !is AnimeLoadResponse) return@runAllAsync
                     val map =
                         Kitsu.getEpisodesDetails(
                             getMalId(),
                             getAniListId(),
                             isResponseRequired = false
                         )
-                    if (map.isNullOrEmpty()) return@argamap
-                    updateEpisodes = DubStatus.values().map { dubStatus ->
+                    if (map.isNullOrEmpty()) return@runAllAsync
+                    updateEpisodes = DubStatus.entries.map { dubStatus ->
                         val current =
                             this.episodes[dubStatus]?.mapIndexed { index, episode ->
                                 episode.apply {
@@ -1637,6 +1960,7 @@ class ResultViewModel2 : ViewModel() {
 
             postSuccessful(
                 value ?: return@launchSafe,
+                currentId ?: return@launchSafe,
                 currentRepo ?: return@launchSafe,
                 updateEpisodes ?: return@launchSafe,
                 false
@@ -1653,15 +1977,29 @@ class ResultViewModel2 : ViewModel() {
     }
 
     fun changeDubStatus(status: DubStatus) {
-        postEpisodeRange(currentIndex?.copy(dubStatus = status), currentRange)
+        postEpisodeRange(
+            currentIndex?.copy(dubStatus = status),
+            currentRange,
+            currentSorting ?: DataStoreHelper.resultsSortingMode
+        )
     }
 
     fun changeRange(range: EpisodeRange) {
-        postEpisodeRange(currentIndex, range)
+        postEpisodeRange(currentIndex, range, currentSorting ?: DataStoreHelper.resultsSortingMode)
     }
 
     fun changeSeason(season: Int) {
-        postEpisodeRange(currentIndex?.copy(season = season), currentRange)
+        postEpisodeRange(
+            currentIndex?.copy(season = season),
+            currentRange,
+            currentSorting ?: DataStoreHelper.resultsSortingMode
+        )
+    }
+
+    fun setSort(sortType: EpisodeSortType) {
+        // we only update here as postEpisodeRange might change the sorting mode if it does not fit
+        DataStoreHelper.resultsSortingMode = sortType
+        postEpisodeRange(currentIndex, currentRange, sortType)
     }
 
     private fun getMovie(): ResultEpisode? {
@@ -1671,26 +2009,40 @@ class ResultViewModel2 : ViewModel() {
         }
     }
 
-    private fun getEpisodes(indexer: EpisodeIndexer, range: EpisodeRange): List<ResultEpisode> {
-        val startIndex = range.startIndex
-        val length = range.length
-
-        return currentEpisodes[indexer]
-            ?.let { list ->
-                val start = minOf(list.size, startIndex)
-                val end = minOf(list.size, start + length)
-                list.subList(start, end).map {
-                    val posDur = getViewPos(it.id)
-                    val watchState =
-                        DataStoreHelper.getVideoWatchState(it.id) ?: VideoWatchState.None
-                    it.copy(
-                        position = posDur?.position ?: 0,
-                        duration = posDur?.duration ?: 0,
-                        videoWatchState = watchState
-                    )
-                }
+    private fun getEpisodes(
+        indexer: EpisodeIndexer,
+        range: EpisodeRange,
+    ): List<ResultEpisode> {
+        return currentEpisodes[indexer]?.let { list ->
+            val start = minOf(list.size, range.startIndex)
+            val end = minOf(list.size, start + range.length)
+            list.subList(start, end).map {
+                val posDur = getViewPos(it.id)
+                val watchState = getVideoWatchState(it.id) ?: VideoWatchState.None
+                it.copy(
+                    position = posDur?.position ?: 0,
+                    duration = posDur?.duration ?: 0,
+                    videoWatchState = watchState
+                )
             }
-            ?: emptyList()
+        } ?: emptyList()
+    }
+
+    private fun getSortedEpisodes(
+        episodes: List<ResultEpisode>,
+        sorting: EpisodeSortType
+    ): List<ResultEpisode> {
+        return when (sorting) {
+            EpisodeSortType.NUMBER_ASC -> episodes.sortedBy { it.episode }
+            EpisodeSortType.NUMBER_DESC -> episodes.sortedByDescending { it.episode }
+            EpisodeSortType.RATING_HIGH_LOW -> episodes.sortedByDescending {
+                it.score?.toDouble() ?: 0.0
+            }
+
+            EpisodeSortType.RATING_LOW_HIGH -> episodes.sortedBy { it.score?.toDouble() ?: 0.0 }
+            EpisodeSortType.DATE_NEWEST -> episodes.sortedByDescending { it.airDate }
+            EpisodeSortType.DATE_OLDEST -> episodes.sortedBy { it.airDate }
+        }
     }
 
     private fun postMovie() {
@@ -1729,9 +2081,11 @@ class ResultViewModel2 : ViewModel() {
         } else {
             _episodes.postValue(
                 Resource.Success(
-                    getEpisodes(
-                        currentIndex ?: return,
-                        currentRange ?: return
+                    getSortedEpisodes(
+                        getEpisodes(
+                            currentIndex ?: return,
+                            currentRange ?: return,
+                        ), currentSorting ?: return
                     )
                 )
             )
@@ -1741,17 +2095,42 @@ class ResultViewModel2 : ViewModel() {
     }
 
     private fun postSubscription(loadResponse: LoadResponse) {
+        val id = loadResponse.getId()
+        val data = getSubscribedData(id)
         if (loadResponse.isEpisodeBased()) {
-            val id = loadResponse.getId()
-            val data = DataStoreHelper.getSubscribedData(id)
-            DataStoreHelper.updateSubscribedData(id, data, loadResponse as? EpisodeResponse)
-            val isSubscribed = data != null
-            _subscribeStatus.postValue(isSubscribed)
+            updateSubscribedData(id, data, loadResponse as? EpisodeResponse)
+            _subscribeStatus.postValue(data != null)
+        }
+        // lets say that we have subscribed, then we must be able to unsubscribe no matter what
+        else if (data != null) {
+            _subscribeStatus.postValue(true)
+        } else _subscribeStatus.postValue(null)
+    }
+
+    private fun postFavorites(loadResponse: LoadResponse) {
+        val id = loadResponse.getId()
+        val isFavorite = getFavoritesData(id) != null
+        _favoriteStatus.postValue(isFavorite)
+    }
+
+    private fun shouldEnableSort(type: EpisodeSortType, episodes: List<ResultEpisode>?): Boolean {
+        if (episodes.isNullOrEmpty()) return false
+        return when (type) {
+            EpisodeSortType.NUMBER_ASC, EpisodeSortType.NUMBER_DESC -> true
+            EpisodeSortType.RATING_HIGH_LOW, EpisodeSortType.RATING_LOW_HIGH ->
+                episodes.any { it.score != null }
+
+            EpisodeSortType.DATE_NEWEST, EpisodeSortType.DATE_OLDEST ->
+                episodes.any { it.airDate != null }
         }
     }
 
-    private fun postEpisodeRange(indexer: EpisodeIndexer?, range: EpisodeRange?) {
-        if (range == null || indexer == null) {
+    private fun postEpisodeRange(
+        indexer: EpisodeIndexer?,
+        range: EpisodeRange?,
+        sorting: EpisodeSortType?
+    ) {
+        if (range == null || indexer == null || sorting == null) {
             return
         }
 
@@ -1759,10 +2138,10 @@ class ResultViewModel2 : ViewModel() {
 
         if (ranges?.contains(range) != true) {
             // if the current ranges does not include the range then select the range with the closest matching start episode
-            // this usually happends when dub has less episodes then sub -> the range does not exist
+            // this usually happens when dub has less episodes then sub -> the range does not exist
             ranges?.minByOrNull { kotlin.math.abs(it.startEpisode - range.startEpisode) }
                 ?.let { r ->
-                    postEpisodeRange(indexer, r)
+                    postEpisodeRange(indexer, r, sorting)
                     return
                 }
         }
@@ -1793,29 +2172,8 @@ class ResultViewModel2 : ViewModel() {
         )
 
         _selectedSeason.postValue(
-
             if (isMovie || currentSeasons.size <= 1) null else
-                when (indexer.season) {
-                    0 -> txt(R.string.no_season)
-                    else -> {
-                        val seasonNames = (currentResponse as? EpisodeResponse)?.seasonNames
-                        val seasonData = seasonNames.getSeason(indexer.season)
-
-                        // If displaySeason is null then only show the name!
-                        if (seasonData?.name != null && seasonData.displaySeason == null) {
-                            txt(seasonData.name)
-                        } else {
-                            val suffix = seasonData?.name?.let { " $it" } ?: ""
-                            txt(
-                                R.string.season_format,
-                                txt(R.string.season),
-                                seasonData?.displaySeason ?: indexer.season,
-                                suffix
-                            )
-                        }
-                    }
-                }
-
+                (currentResponse as? EpisodeResponse)?.seasonNames.getSeasonTxt(indexer.season)
         )
 
         _selectedRangeIndex.postValue(
@@ -1865,39 +2223,91 @@ class ResultViewModel2 : ViewModel() {
         }
 
         if (isMovie) {
+            _sortSelections.postValue(emptyList())
+            _selectedSortingIndex.postValue(-1)
+            _selectedSorting.postValue(null)
+
             postMovie()
         } else {
             val ret = getEpisodes(indexer, range)
-            /*if (ret.isEmpty()) {
-                val index = ranges?.indexOf(range)
-                if(index != null && index > 0) {
 
+            if (ret.size <= 1) {
+                // we cant sort on an empty list or a list with only 1 episode
+                _sortSelections.postValue(emptyList())
+                _selectedSortingIndex.postValue(-1)
+                _selectedSorting.postValue(null)
+                _episodes.postValue(Resource.Success(ret))
+            } else {
+                val sortOptions = mutableListOf<Pair<UiText, EpisodeSortType>>().apply {
+                    // Episode number sorting is always available
+                    add(txt(R.string.sort_episodes_number_asc) to EpisodeSortType.NUMBER_ASC)
+                    add(txt(R.string.sort_episodes_number_desc) to EpisodeSortType.NUMBER_DESC)
+
+                    // Only add rating options if any episodes have ratings
+                    if (shouldEnableSort(EpisodeSortType.RATING_HIGH_LOW, ret)) {
+                        add(txt(R.string.sort_episodes_rating_high_low) to EpisodeSortType.RATING_HIGH_LOW)
+                        add(txt(R.string.sort_episodes_rating_low_high) to EpisodeSortType.RATING_LOW_HIGH)
+                    }
+
+                    // Only add air date options if any episodes have air dates
+                    if (shouldEnableSort(EpisodeSortType.DATE_NEWEST, ret)) {
+                        add(txt(R.string.sort_episodes_date_newest) to EpisodeSortType.DATE_NEWEST)
+                        add(txt(R.string.sort_episodes_date_oldest) to EpisodeSortType.DATE_OLDEST)
+                    }
                 }
-            }*/
-            _episodes.postValue(Resource.Success(ret))
+
+                var sortIndex = sortOptions.indexOfFirst { it.second == sorting }
+
+                // correct the sorting order so if we have a selected that is not possible we just choose the default NUMBER_ASC
+                val correctedSorting = if (sortIndex == -1) {
+                    sortIndex = 0
+                    EpisodeSortType.NUMBER_ASC
+                } else {
+                    sorting
+                }
+
+                currentSorting = correctedSorting
+                _sortSelections.postValue(sortOptions)
+                _selectedSortingIndex.postValue(sortIndex)
+                _selectedSorting.postValue(
+                    when (correctedSorting) {
+                        EpisodeSortType.NUMBER_ASC -> txt(R.string.sort_button_episode, "↑")
+                        EpisodeSortType.NUMBER_DESC -> txt(R.string.sort_button_episode, "↓")
+                        EpisodeSortType.RATING_HIGH_LOW -> txt(R.string.sort_button_rating, "↓")
+                        EpisodeSortType.RATING_LOW_HIGH -> txt(R.string.sort_button_rating, "↑")
+                        EpisodeSortType.DATE_NEWEST -> txt(R.string.sort_button_date, "↓")
+                        EpisodeSortType.DATE_OLDEST -> txt(R.string.sort_button_date, "↑")
+                    }
+                )
+                _episodes.postValue(Resource.Success(getSortedEpisodes(ret, correctedSorting)))
+            }
         }
     }
 
     private suspend fun postSuccessful(
         loadResponse: LoadResponse,
+        mainId: Int,
         apiRepository: APIRepository,
         updateEpisodes: Boolean,
         updateFillers: Boolean,
     ) {
+        currentId = mainId
         currentResponse = loadResponse
         postPage(loadResponse, apiRepository)
         postSubscription(loadResponse)
+        postFavorites(loadResponse)
+        _watchStatus.postValue(getResultWatchState(mainId))
+
         if (updateEpisodes)
-            postEpisodes(loadResponse, updateFillers)
+            postEpisodes(loadResponse, mainId, updateFillers)
     }
 
-    private suspend fun postEpisodes(loadResponse: LoadResponse, updateFillers: Boolean) {
+    private suspend fun postEpisodes(
+        loadResponse: LoadResponse,
+        mainId: Int,
+        updateFillers: Boolean
+    ) {
         _episodes.postValue(Resource.Loading())
-
-        val mainId = loadResponse.getId()
-        currentId = mainId
-
-        _watchStatus.postValue(getResultWatchState(mainId))
 
         if (updateFillers && loadResponse is AnimeLoadResponse) {
             updateFillers(loadResponse.name)
@@ -1915,6 +2325,15 @@ class ResultViewModel2 : ViewModel() {
                         val id =
                             mainId + episode + idIndex * 1_000_000 + (i.season?.times(10_000)
                                 ?: 0)
+
+                        val totalIndex =
+                            i.season?.let { season ->
+                                loadResponse.getTotalEpisodeIndex(
+                                    episode,
+                                    season
+                                )
+                            }
+
                         if (!existingEpisodes.contains(id)) {
                             existingEpisodes.add(id)
                             val seasonData = loadResponse.seasonNames.getSeason(i.season)
@@ -1924,17 +2343,21 @@ class ResultViewModel2 : ViewModel() {
                                     filterName(i.name),
                                     i.posterUrl,
                                     episode,
-                                    seasonData?.season ?: i.season,
+                                    i.season,
                                     if (seasonData != null) seasonData.displaySeason else i.season,
                                     i.data,
                                     loadResponse.apiName,
                                     id,
                                     index,
-                                    i.rating,
+                                    i.score,
                                     i.description,
                                     fillers.getOrDefault(episode, false),
                                     loadResponse.type,
-                                    mainId
+                                    mainId,
+                                    totalIndex,
+                                    airDate = i.date,
+                                    runTime = i.runTime,
+                                    seasonData = seasonData,
                                 )
 
                             val season = eps.seasonIndex ?: 0
@@ -1963,23 +2386,35 @@ class ResultViewModel2 : ViewModel() {
                         val seasonData =
                             loadResponse.seasonNames.getSeason(episode.season)
 
+                        val totalIndex =
+                            episode.season?.let { season ->
+                                loadResponse.getTotalEpisodeIndex(
+                                    episodeIndex,
+                                    season
+                                )
+                            }
+
                         val ep =
                             buildResultEpisode(
                                 loadResponse.name,
                                 filterName(episode.name),
                                 episode.posterUrl,
                                 episodeIndex,
-                                seasonData?.season ?: episode.season,
+                                episode.season,
                                 if (seasonData != null) seasonData.displaySeason else episode.season,
                                 episode.data,
                                 loadResponse.apiName,
                                 id,
                                 index,
-                                episode.rating,
+                                episode.score,
                                 episode.description,
                                 null,
                                 loadResponse.type,
-                                mainId
+                                mainId,
+                                totalIndex,
+                                airDate = episode.date,
+                                runTime = episode.runTime,
+                                seasonData = seasonData,
                             )
 
                         val season = ep.seasonIndex ?: 0
@@ -2010,7 +2445,8 @@ class ResultViewModel2 : ViewModel() {
                         null,
                         null,
                         loadResponse.type,
-                        mainId
+                        mainId,
+                        null,
                     )
                 )
             }
@@ -2032,7 +2468,8 @@ class ResultViewModel2 : ViewModel() {
                         null,
                         null,
                         loadResponse.type,
-                        mainId
+                        mainId,
+                        null
                     )
                 )
             }
@@ -2054,7 +2491,8 @@ class ResultViewModel2 : ViewModel() {
                         null,
                         null,
                         loadResponse.type,
-                        mainId
+                        mainId,
+                        null
                     )
                 )
             }
@@ -2075,21 +2513,7 @@ class ResultViewModel2 : ViewModel() {
         _dubSubSelections.postValue(dubSelection.map { txt(it) to it })
         if (loadResponse is EpisodeResponse) {
             _seasonSelections.postValue(seasonsSelection.map { seasonNumber ->
-                val seasonData = loadResponse.seasonNames.getSeason(seasonNumber)
-                val fixedSeasonNumber = seasonData?.displaySeason ?: seasonNumber
-                val suffix = seasonData?.name?.let { " $it" } ?: ""
-                // If displaySeason is null then only show the name!
-                val name = if (seasonData?.name != null && seasonData.displaySeason == null) {
-                    txt(seasonData.name)
-                } else {
-                    txt(
-                        R.string.season_format,
-                        txt(R.string.season),
-                        fixedSeasonNumber,
-                        suffix
-                    )
-                }
-                name to seasonNumber
+                loadResponse.seasonNames.getSeasonTxt(seasonNumber) to seasonNumber
             })
         }
 
@@ -2111,17 +2535,17 @@ class ResultViewModel2 : ViewModel() {
             it.startEpisode >= (preferStartEpisode ?: 0)
         } ?: ranger?.lastOrNull()
 
-        postEpisodeRange(min, range)
+        postEpisodeRange(min, range, DataStoreHelper.resultsSortingMode)
         postResume()
     }
 
-    fun postResume() {
+    private fun postResume() {
         _resumeWatching.postValue(resume())
     }
 
     private fun resume(): ResumeWatchingStatus? {
         val correctId = currentId ?: return null
-        val resume = DataStoreHelper.getLastWatched(correctId)
+        val resume = getLastWatched(correctId)
         val resumeParentId = resume?.parentId
         if (resumeParentId != correctId) return null // is null or smth went wrong with getLastWatched
         val resumeId = resume.episodeId ?: return null// invalid episode id
@@ -2136,7 +2560,13 @@ class ResultViewModel2 : ViewModel() {
             ResumeProgress(
                 progress = (viewPos.position / 1000).toInt(),
                 maxProgress = (viewPos.duration / 1000).toInt(),
-                txt(R.string.resume_time_left, (viewPos.duration - viewPos.position) / (60_000))
+                txt(
+                    R.string.resume_remaining,
+                    secondsToReadable(
+                        ((viewPos.duration - viewPos.position) / 1_000).toInt(),
+                        "0 mins"
+                    )
+                )
             )
         }
 
@@ -2170,14 +2600,16 @@ class ResultViewModel2 : ViewModel() {
                                 { links.add(it) }) && trailerData.raw
                         ) {
                             arrayListOf(
-                                ExtractorLink(
+                                newExtractorLink(
                                     "",
                                     "Trailer",
                                     trailerData.extractorUrl,
-                                    trailerData.referer ?: "",
-                                    Qualities.Unknown.value,
                                     type = INFER_TYPE
-                                )
+                                ) {
+                                    this.referer = trailerData.referer ?: ""
+                                    this.quality = Qualities.Unknown.value
+                                    this.headers = trailerData.headers
+                                }
                             ) to arrayListOf()
                         } else {
                             links to subs
@@ -2243,6 +2675,68 @@ class ResultViewModel2 : ViewModel() {
             }
         }
 
+    data class LoadResponseFromSearch(
+        override var name: String,
+        override var url: String,
+        override var apiName: String,
+        override var type: TvType,
+        override var posterUrl: String?,
+        override var year: Int? = null,
+        override var plot: String? = null,
+        override var score: Score? = null,
+        override var tags: List<String>? = null,
+        override var duration: Int? = null,
+        override var trailers: MutableList<TrailerData> = mutableListOf(),
+        override var recommendations: List<SearchResponse>? = null,
+        override var actors: List<ActorData>? = null,
+        override var comingSoon: Boolean = false,
+        override var syncData: MutableMap<String, String> = mutableMapOf(),
+        override var posterHeaders: Map<String, String>? = null,
+        override var backgroundPosterUrl: String? = null,
+        override var contentRating: String? = null,
+        override var uniqueUrl: String = url,
+        val id: Int?,
+    ) : LoadResponse
+
+    fun loadSmall(searchResponse: SearchResponse) = ioSafe {
+        val url = searchResponse.url
+        _page.postValue(Resource.Loading(url))
+        _episodes.postValue(Resource.Loading())
+        val api =
+            APIHolder.getApiFromNameNull(searchResponse.apiName) ?: APIHolder.getApiFromUrlNull(
+                searchResponse.url
+            ) ?: APIRepository.noneApi
+        val repo = APIRepository(api)
+        val response = LoadResponseFromSearch(
+            name = searchResponse.name,
+            url = searchResponse.url,
+            apiName = api.name,
+            type = searchResponse.type ?: TvType.Others,
+            posterUrl = searchResponse.posterUrl,
+            id = searchResponse.id
+        ).apply {
+            if (searchResponse is SyncAPI.LibraryItem) {
+                this.plot = searchResponse.plot
+                this.score = searchResponse.personalRating ?: searchResponse.score
+                this.tags = searchResponse.tags
+            }
+            if (searchResponse is DataStoreHelper.BookmarkedData) {
+                this.plot = searchResponse.plot
+                this.score = searchResponse.score
+                this.tags = searchResponse.tags
+            }
+        }
+        val mainId = response.getId()
+
+        postSuccessful(
+            loadResponse = response,
+            mainId = mainId,
+            apiRepository = repo,
+            updateEpisodes = false,
+            updateFillers = false
+        )
+    }
+
     fun load(
         activity: Activity?,
         url: String,
@@ -2265,8 +2759,6 @@ class ResultViewModel2 : ViewModel() {
                 _page.postValue(
                     Resource.Failure(
                         false,
-                        null,
-                        null,
                         "This provider does not exist"
                     )
                 )
@@ -2315,19 +2807,20 @@ class ResultViewModel2 : ViewModel() {
                         DOWNLOAD_HEADER_CACHE,
                         mainId.toString(),
                         VideoDownloadHelper.DownloadHeaderCached(
-                            apiName,
-                            validUrl,
-                            loadResponse.type,
-                            loadResponse.name,
-                            loadResponse.posterUrl,
-                            mainId,
-                            System.currentTimeMillis(),
+                            apiName = apiName,
+                            url = validUrl,
+                            type = loadResponse.type,
+                            name = loadResponse.name,
+                            poster = loadResponse.posterUrl,
+                            id = mainId,
+                            cacheTime = System.currentTimeMillis(),
                         )
                     )
                     if (loadTrailers)
                         loadTrailers(data.value)
                     postSuccessful(
                         data.value,
+                        mainId,
                         updateEpisodes = true,
                         updateFillers = showFillers,
                         apiRepository = repo

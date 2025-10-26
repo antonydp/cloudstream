@@ -1,21 +1,20 @@
 package com.lagradost.cloudstream3
 
-import android.Manifest
 import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.content.res.Resources
+import android.Manifest
 import android.os.Build
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
-import android.view.LayoutInflater
 import android.view.View
 import android.view.View.NO_ID
 import android.view.ViewGroup
-import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,23 +30,29 @@ import com.google.android.material.chip.ChipGroup
 import com.google.android.material.navigationrail.NavigationRailView
 import com.lagradost.cloudstream3.AcraApplication.Companion.getKey
 import com.lagradost.cloudstream3.AcraApplication.Companion.removeKey
+import com.lagradost.cloudstream3.actions.OpenInAppAction
+import com.lagradost.cloudstream3.actions.VideoClickActionHolder
+import com.lagradost.cloudstream3.databinding.ToastBinding
 import com.lagradost.cloudstream3.mvvm.logError
+import com.lagradost.cloudstream3.syncproviders.AccountManager
 import com.lagradost.cloudstream3.ui.player.PlayerEventType
-import com.lagradost.cloudstream3.ui.result.ResultFragment
-import com.lagradost.cloudstream3.ui.result.UiText
-import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.updateTv
-import com.lagradost.cloudstream3.utils.AppUtils.isRtl
-import com.lagradost.cloudstream3.utils.DataStoreHelper
+import com.lagradost.cloudstream3.ui.player.Torrent
+import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
+import com.lagradost.cloudstream3.ui.settings.Globals.TV
+import com.lagradost.cloudstream3.ui.settings.Globals.updateTv
+import com.lagradost.cloudstream3.utils.AppContextUtils.isRtl
+import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.Event
 import com.lagradost.cloudstream3.utils.UIHelper
 import com.lagradost.cloudstream3.utils.UIHelper.hasPIPPermission
 import com.lagradost.cloudstream3.utils.UIHelper.shouldShowPIPMode
 import com.lagradost.cloudstream3.utils.UIHelper.toPx
-import org.schabi.newpipe.extractor.NewPipe
+import com.lagradost.cloudstream3.utils.UiText
 import java.lang.ref.WeakReference
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
+import org.schabi.newpipe.extractor.NewPipe
 
 enum class FocusDirection {
     Start,
@@ -66,6 +71,11 @@ object CommonActivity {
         }
 
     @MainThread
+    fun setActivityInstance(newActivity: Activity?) {
+        activity = newActivity
+    }
+
+    @MainThread
     fun Activity?.getCastSession(): CastSession? {
         return (this as MainActivity?)?.mSessionManager?.currentCastSession
     }
@@ -82,7 +92,14 @@ object CommonActivity {
         get() {
             return min(displayMetrics.widthPixels, displayMetrics.heightPixels)
         }
-
+    val screenWidthWithOrientation: Int
+        get() {
+            return displayMetrics.widthPixels
+        }
+    val screenHeightWithOrientation: Int
+        get() {
+            return displayMetrics.heightPixels
+        }
 
     var canEnterPipMode: Boolean = false
     var canShowPipMode: Boolean = false
@@ -93,9 +110,10 @@ object CommonActivity {
 
     var playerEventListener: ((PlayerEventType) -> Unit)? = null
     var keyEventListener: ((Pair<KeyEvent?, Boolean>) -> Boolean)? = null
+    var appliedTheme : Int = 0
+    var appliedColor : Int = 0
 
-
-    var currentToast: Toast? = null
+    private var currentToast: Toast? = null
 
     fun showToast(@StringRes message: Int, duration: Int? = null) {
         val act = activity ?: return
@@ -151,42 +169,40 @@ object CommonActivity {
         } catch (e: Exception) {
             logError(e)
         }
+
         try {
-            val inflater =
-                act.getSystemService(AppCompatActivity.LAYOUT_INFLATER_SERVICE) as LayoutInflater
+            val binding = ToastBinding.inflate(act.layoutInflater)
+            binding.text.text = message.trim()
 
-            val layout: View = inflater.inflate(
-                R.layout.toast,
-                act.findViewById<View>(R.id.toast_layout_root) as ViewGroup?
-            )
-
-            val text = layout.findViewById(R.id.text) as TextView
-            text.text = message.trim()
-
+            // custom toasts are deprecated and won't appear when cs3 sets minSDK to api30 (A11)
             val toast = Toast(act)
-            toast.setGravity(Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM, 0, 5.toPx)
             toast.duration = duration ?: Toast.LENGTH_SHORT
-            toast.view = layout
-            //https://github.com/PureWriter/ToastCompat
-            toast.show()
+            toast.setGravity(Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM, 0, 5.toPx)
+            @Suppress("DEPRECATION")
+            toast.view =
+                binding.root // FIXME Find an alternative using default Toasts since custom toasts are deprecated and won't appear with api30 set as minSDK version.
             currentToast = toast
+            toast.show()
+
         } catch (e: Exception) {
             logError(e)
         }
     }
 
     /**
-     * Not all languages can be fetched from locale with a code.
-     * This map allows sidestepping the default Locale(languageCode)
-     * when setting the app language.
-     **/
-    val appLanguageExceptions = hashMapOf(
-        "zh-rTW" to Locale.TRADITIONAL_CHINESE
-    )
-
-    fun setLocale(context: Context?, languageCode: String?) {
-        if (context == null || languageCode == null) return
-        val locale = appLanguageExceptions[languageCode] ?: Locale(languageCode)
+     * Set locale
+     * @param languageTag shall a IETF BCP 47 conformant tag.
+     * Check [com.lagradost.cloudstream3.utils.SubtitleHelper].
+     *
+     * See locales on:
+     * https://github.com/unicode-org/cldr-json/blob/main/cldr-json/cldr-core/availableLocales.json
+     * https://www.iana.org/assignments/language-subtag-registry/language-subtag-registry
+     * https://android.googlesource.com/platform/frameworks/base/+/android-16.0.0_r2/core/res/res/values/locale_config.xml
+     * https://iso639-3.sil.org/code_tables/639/data/all
+    */
+    fun setLocale(context: Context?, languageTag: String?) {
+        if (context == null || languageTag == null) return
+        val locale = Locale.forLanguageTag(languageTag)
         val resources: Resources = context.resources
         val config = resources.configuration
         Locale.setDefault(locale)
@@ -194,7 +210,12 @@ object CommonActivity {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
             context.createConfigurationContext(config)
-        resources.updateConfiguration(config, resources.displayMetrics)
+
+        @Suppress("DEPRECATION")
+        resources.updateConfiguration(
+            config,
+            resources.displayMetrics
+        ) // FIXME this should be replaced
     }
 
     fun Context.updateLocale() {
@@ -203,44 +224,46 @@ object CommonActivity {
         setLocale(this, localeCode)
     }
 
-    fun init(act: ComponentActivity?) {
-        if (act == null) return
-        activity = act
+    fun init(act: Activity) {
+        setActivityInstance(act)
+        ioSafe { Torrent.deleteAllFiles() }
+
+        val componentActivity = activity as? ComponentActivity ?: return
+
         //https://stackoverflow.com/questions/52594181/how-to-know-if-user-has-disabled-picture-in-picture-feature-permission
         //https://developer.android.com/guide/topics/ui/picture-in-picture
         canShowPipMode =
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && // OS SUPPORT
-                    act.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) && // HAS FEATURE, MIGHT BE BLOCKED DUE TO POWER DRAIN
-                    act.hasPIPPermission() // CHECK IF FEATURE IS ENABLED IN SETTINGS
+                    componentActivity.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) && // HAS FEATURE, MIGHT BE BLOCKED DUE TO POWER DRAIN
+                    componentActivity.hasPIPPermission() // CHECK IF FEATURE IS ENABLED IN SETTINGS
 
-        act.updateLocale()
-        act.updateTv()
+        componentActivity.updateLocale()
+        componentActivity.updateTv()
+        AccountManager.initMainAPI()
         NewPipe.init(DownloaderTestImpl.getInstance())
 
-        for (resumeApp in resumeApps) {
-            resumeApp.launcher =
-                act.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-                    val resultCode = result.resultCode
-                    val data = result.data
-                    if (resultCode == AppCompatActivity.RESULT_OK && data != null && resumeApp.position != null && resumeApp.duration != null) {
-                        val pos = resumeApp.getPosition(data)
-                        val dur = resumeApp.getDuration(data)
-                        if (dur > 0L && pos > 0L)
-                            DataStoreHelper.setViewPos(getKey(resumeApp.lastId), pos, dur)
-                        removeKey(resumeApp.lastId)
-                        ResultFragment.updateUI()
-                    }
+        MainActivity.activityResultLauncher =
+            componentActivity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+                if (result.resultCode == AppCompatActivity.RESULT_OK) {
+                    val actionUid =
+                        getKey<String>("last_click_action") ?: return@registerForActivityResult
+                    Log.d(TAG, "Loading action $actionUid result handler")
+                    val action = VideoClickActionHolder.getByUniqueId(actionUid) as? OpenInAppAction
+                        ?: return@registerForActivityResult
+                    action.onResultSafe(act, result.data)
+                    removeKey("last_click_action")
+                    removeKey("last_opened_id")
                 }
-        }
+            }
 
         // Ask for notification permissions on Android 13
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
-                act,
+                componentActivity,
                 Manifest.permission.POST_NOTIFICATIONS
             ) != PackageManager.PERMISSION_GRANTED
         ) {
-            val requestPermissionLauncher = act.registerForActivityResult(
+            val requestPermissionLauncher = componentActivity.registerForActivityResult(
                 ActivityResultContracts.RequestPermission()
             ) { isGranted: Boolean ->
                 Log.d(TAG, "Notification permission: $isGranted")
@@ -258,10 +281,13 @@ object CommonActivity {
                 try {
                     enterPictureInPictureMode(PictureInPictureParams.Builder().build())
                 } catch (e: Exception) {
+                    // Use fallback just in case
+                    @Suppress("DEPRECATION")
                     enterPictureInPictureMode()
                 }
             } else {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    @Suppress("DEPRECATION")
                     enterPictureInPictureMode()
                 }
             }
@@ -276,18 +302,44 @@ object CommonActivity {
         }
     }
 
+    fun updateTheme(act: Activity) {
+        val settingsManager = PreferenceManager.getDefaultSharedPreferences(act)
+        if (settingsManager
+                .getString(act.getString(R.string.app_theme_key), "AmoledLight") == "System"
+            && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        ) {
+            loadThemes(act)
+        }
+    }
+
+    private fun mapSystemTheme(act: Activity): Int {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val currentNightMode =
+                act.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+            return when (currentNightMode) {
+                Configuration.UI_MODE_NIGHT_NO -> R.style.LightMode // Night mode is not active, we're using the light theme
+                else -> R.style.AppTheme // Night mode is active, we're using dark theme
+            }
+        } else {
+            return R.style.AppTheme
+        }
+    }
+
     fun loadThemes(act: Activity?) {
         if (act == null) return
         val settingsManager = PreferenceManager.getDefaultSharedPreferences(act)
 
         val currentTheme =
             when (settingsManager.getString(act.getString(R.string.app_theme_key), "AmoledLight")) {
+                "System" -> mapSystemTheme(act)
                 "Black" -> R.style.AppTheme
                 "Light" -> R.style.LightMode
                 "Amoled" -> R.style.AmoledMode
                 "AmoledLight" -> R.style.AmoledModeLight
                 "Monet" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                     R.style.MonetMode else R.style.AppTheme
+                "Dracula" -> R.style.DraculaMode
+                "Lavender" -> R.style.LavenderMode
 
                 else -> R.style.AppTheme
             }
@@ -295,12 +347,15 @@ object CommonActivity {
         val currentOverlayTheme =
             when (settingsManager.getString(act.getString(R.string.primary_color_key), "Normal")) {
                 "Normal" -> R.style.OverlayPrimaryColorNormal
+                "DandelionYellow" -> R.style.OverlayPrimaryColorDandelionYellow
                 "CarnationPink" -> R.style.OverlayPrimaryColorCarnationPink
+                "Orange" -> R.style.OverlayPrimaryColorOrange
                 "DarkGreen" -> R.style.OverlayPrimaryColorDarkGreen
                 "Maroon" -> R.style.OverlayPrimaryColorMaroon
                 "NavyBlue" -> R.style.OverlayPrimaryColorNavyBlue
                 "Grey" -> R.style.OverlayPrimaryColorGrey
                 "White" -> R.style.OverlayPrimaryColorWhite
+                "CoolBlue" -> R.style.OverlayPrimaryColorCoolBlue
                 "Brown" -> R.style.OverlayPrimaryColorBrown
                 "Purple" -> R.style.OverlayPrimaryColorPurple
                 "Green" -> R.style.OverlayPrimaryColorGreen
@@ -309,6 +364,7 @@ object CommonActivity {
                 "Banana" -> R.style.OverlayPrimaryColorBanana
                 "Party" -> R.style.OverlayPrimaryColorParty
                 "Pink" -> R.style.OverlayPrimaryColorPink
+                "Lavender" -> R.style.OverlayPrimaryColorLavender
                 "Monet" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
                     R.style.OverlayPrimaryColorMonet else R.style.OverlayPrimaryColorNormal
 
@@ -317,9 +373,13 @@ object CommonActivity {
 
                 else -> R.style.OverlayPrimaryColorNormal
             }
+
         act.theme.applyStyle(currentTheme, true)
         act.theme.applyStyle(currentOverlayTheme, true)
-
+        appliedTheme = currentTheme
+        appliedColor = currentOverlayTheme
+        act.updateTv()
+        if (isLayout(TV)) act.theme.applyStyle(R.style.AppThemeTvOverlay, true)
         act.theme.applyStyle(
             R.style.LoadedStyle,
             true
@@ -348,8 +408,8 @@ object CommonActivity {
         currentLook = currentLook.parent as? View ?: break
     }*/
 
-    private fun View.hasContent() : Boolean {
-        return isShown && when(this) {
+    private fun View.hasContent(): Boolean {
+        return isShown && when (this) {
             //is RecyclerView -> this.childCount > 0
             is ViewGroup -> this.childCount > 0
             else -> true
@@ -459,24 +519,10 @@ object CommonActivity {
     }
 
 
-    fun onKeyDown(act: Activity?, keyCode: Int, event: KeyEvent?) {
-        //println("Keycode: $keyCode")
-        //showToast(
-        //    this,
-        //    "Got Keycode $keyCode | ${KeyEvent.keyCodeToString(keyCode)} \n ${event?.action}",
-        //    Toast.LENGTH_LONG
-        //)
-
-        // Tested keycodes on remote:
-        // KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
-        // KeyEvent.KEYCODE_MEDIA_REWIND
-        // KeyEvent.KEYCODE_MENU
-        // KeyEvent.KEYCODE_MEDIA_NEXT
-        // KeyEvent.KEYCODE_MEDIA_PREVIOUS
-        // KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+    fun onKeyDown(act: Activity?, keyCode: Int, event: KeyEvent?): Boolean? {
 
         // 149 keycode_numpad 5
-        when (keyCode) {
+        val playerEvent = when (keyCode) {
             KeyEvent.KEYCODE_FORWARD, KeyEvent.KEYCODE_D, KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
                 PlayerEventType.SeekForward
             }
@@ -485,11 +531,11 @@ object CommonActivity {
                 PlayerEventType.SeekBack
             }
 
-            KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_N -> {
+            KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_N, KeyEvent.KEYCODE_NUMPAD_2, KeyEvent.KEYCODE_CHANNEL_UP -> {
                 PlayerEventType.NextEpisode
             }
 
-            KeyEvent.KEYCODE_MEDIA_PREVIOUS, KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_B -> {
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS, KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_B, KeyEvent.KEYCODE_NUMPAD_1, KeyEvent.KEYCODE_CHANNEL_DOWN -> {
                 PlayerEventType.PrevEpisode
             }
 
@@ -541,10 +587,14 @@ object CommonActivity {
                 PlayerEventType.PlayPauseToggle
             }
 
-            else -> null
-        }?.let { playerEvent ->
-            playerEventListener?.invoke(playerEvent)
+            else -> return null
         }
+        val listener = playerEventListener
+        if (listener != null) {
+            listener.invoke(playerEvent)
+            return true
+        }
+        return null
 
         //when (keyCode) {
         //    KeyEvent.KEYCODE_DPAD_CENTER -> {

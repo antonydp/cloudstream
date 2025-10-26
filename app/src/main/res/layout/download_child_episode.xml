@@ -2,13 +2,12 @@
 <androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
-
     android:id="@+id/download_child_episode_holder"
     android:layout_width="match_parent"
-
     android:layout_height="50dp"
     android:layout_marginBottom="5dp"
     android:foreground="@drawable/outline_drawable"
+    android:focusable="true"
     android:nextFocusLeft="@id/nav_rail_view"
     android:nextFocusRight="@id/download_button"
     app:cardBackgroundColor="@color/transparent"
@@ -17,7 +16,6 @@
 
     <androidx.core.widget.ContentLoadingProgressBar
         android:id="@+id/download_child_episode_progress"
-
         style="@android:style/Widget.Material.ProgressBar.Horizontal"
         android:layout_width="match_parent"
         android:layout_height="5dp"
@@ -55,12 +53,10 @@
                 android:layout_gravity="center_vertical"
                 android:layout_marginStart="10dp"
                 android:layout_marginEnd="10dp"
-
                 android:ellipsize="marquee"
                 android:gravity="center_vertical"
                 android:marqueeRepeatLimit="marquee_forever"
                 android:scrollHorizontally="true"
-
                 android:singleLine="true"
                 android:textColor="?attr/textColor"
                 tools:text="Episode 1 Episode 1 Episode 1 Episode 1 Episode 1 Episode 1 Episode 1" />
@@ -77,14 +73,26 @@
                 tools:text="128MB / 237MB" />
         </LinearLayout>
 
-
         <com.lagradost.cloudstream3.ui.download.button.PieFetchButton
             android:id="@+id/download_button"
             android:layout_width="@dimen/download_size"
             android:layout_height="@dimen/download_size"
             android:layout_gravity="center_vertical|end"
             android:layout_marginStart="-50dp"
-            android:background="?selectableItemBackgroundBorderless"
+            android:foreground="@drawable/outline_drawable"
+            android:focusable="true"
+            android:nextFocusLeft="@id/download_child_episode_holder"
             android:padding="10dp" />
+
+        <CheckBox
+            android:id="@+id/delete_checkbox"
+            android:layout_width="@dimen/download_size"
+            android:layout_height="@dimen/download_size"
+            android:layout_gravity="center_vertical|end"
+            android:layout_marginStart="-50dp"
+            android:focusable="true"
+            android:nextFocusLeft="@id/download_child_episode_holder"
+            android:padding="10dp"
+            android:visibility="gone" />
     </GridLayout>
 </androidx.cardview.widget.CardView>

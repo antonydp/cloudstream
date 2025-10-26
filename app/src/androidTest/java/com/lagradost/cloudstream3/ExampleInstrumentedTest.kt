@@ -7,8 +7,11 @@ import android.view.LayoutInflater
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.viewbinding.ViewBinding
+import com.lagradost.cloudstream3.databinding.BottomResultviewPreviewBinding
 import com.lagradost.cloudstream3.databinding.FragmentHomeBinding
 import com.lagradost.cloudstream3.databinding.FragmentHomeTvBinding
+import com.lagradost.cloudstream3.databinding.FragmentLibraryBinding
+import com.lagradost.cloudstream3.databinding.FragmentLibraryTvBinding
 import com.lagradost.cloudstream3.databinding.FragmentPlayerBinding
 import com.lagradost.cloudstream3.databinding.FragmentPlayerTvBinding
 import com.lagradost.cloudstream3.databinding.FragmentResultBinding
@@ -17,6 +20,7 @@ import com.lagradost.cloudstream3.databinding.FragmentSearchBinding
 import com.lagradost.cloudstream3.databinding.FragmentSearchTvBinding
 import com.lagradost.cloudstream3.databinding.HomeResultGridBinding
 import com.lagradost.cloudstream3.databinding.HomepageParentBinding
+import com.lagradost.cloudstream3.databinding.HomepageParentEmulatorBinding
 import com.lagradost.cloudstream3.databinding.HomepageParentTvBinding
 import com.lagradost.cloudstream3.databinding.PlayerCustomLayoutBinding
 import com.lagradost.cloudstream3.databinding.PlayerCustomLayoutTvBinding
@@ -85,6 +89,8 @@ class ExampleInstrumentedTest {
                // testAllLayouts<ActivityMainBinding>(activity,R.layout.activity_main, R.layout.activity_main_tv)
                 //testAllLayouts<ActivityMainBinding>(activity, R.layout.activity_main_tv)
 
+                testAllLayouts<BottomResultviewPreviewBinding>(activity, R.layout.bottom_resultview_preview,R.layout.bottom_resultview_preview_tv)
+
                 testAllLayouts<FragmentPlayerBinding>(activity, R.layout.fragment_player,R.layout.fragment_player_tv)
                 testAllLayouts<FragmentPlayerTvBinding>(activity, R.layout.fragment_player,R.layout.fragment_player_tv)
 
@@ -117,9 +123,12 @@ class ExampleInstrumentedTest {
                // testAllLayouts<HomeScrollViewBinding>(activity, R.layout.home_scroll_view, R.layout.home_scroll_view_tv)
                // testAllLayouts<HomeScrollViewTvBinding>(activity, R.layout.home_scroll_view, R.layout.home_scroll_view_tv)
 
-                testAllLayouts<HomepageParentTvBinding>(activity, R.layout.homepage_parent_tv, R.layout.homepage_parent)
-                testAllLayouts<HomepageParentBinding>(activity, R.layout.homepage_parent_tv, R.layout.homepage_parent)
+                testAllLayouts<HomepageParentTvBinding>(activity, R.layout.homepage_parent_tv, R.layout.homepage_parent_emulator, R.layout.homepage_parent)
+                testAllLayouts<HomepageParentEmulatorBinding>(activity, R.layout.homepage_parent_tv, R.layout.homepage_parent_emulator, R.layout.homepage_parent)
+                testAllLayouts<HomepageParentBinding>(activity, R.layout.homepage_parent_tv, R.layout.homepage_parent_emulator, R.layout.homepage_parent)
 
+                testAllLayouts<FragmentLibraryTvBinding>(activity, R.layout.fragment_library_tv, R.layout.fragment_library)
+                testAllLayouts<FragmentLibraryBinding>(activity, R.layout.fragment_library_tv, R.layout.fragment_library)
             }
         }
     }
@@ -127,14 +136,14 @@ class ExampleInstrumentedTest {
     @Test
     @Throws(AssertionError::class)
     fun providerCorrectData() {
-        val isoNames = SubtitleHelper.languages.map { it.ISO_639_1 }
-        Assert.assertFalse("ISO does not contain any languages", isoNames.isNullOrEmpty())
+        val langTagsIETF = SubtitleHelper.languages.map { it.IETF_tag }
+        Assert.assertFalse("IETFTagNames does not contain any languages", langTagsIETF.isNullOrEmpty())
         for (api in getAllProviders()) {
             Assert.assertTrue("Api does not contain a mainUrl", api.mainUrl != "NONE")
             Assert.assertTrue("Api does not contain a name", api.name != "NONE")
             Assert.assertTrue(
                 "Api ${api.name} does not contain a valid language code",
-                isoNames.contains(api.lang)
+                langTagsIETF.contains(api.lang)
             )
             Assert.assertTrue(
                 "Api ${api.name} does not contain any supported types",
@@ -148,7 +157,7 @@ class ExampleInstrumentedTest {
     fun providerCorrectHomepage() {
         runBlocking {
             getAllProviders().toList().amap { api ->
-                TestingUtils.testHomepage(api, ::println)
+                TestingUtils.testHomepage(api, TestingUtils.Logger())
             }
         }
         println("Done providerCorrectHomepage")
@@ -160,7 +169,6 @@ class ExampleInstrumentedTest {
             TestingUtils.getDeferredProviderTests(
                 this,
                 getAllProviders(),
-                ::println
             ) { _, _ -> }
         }
     }

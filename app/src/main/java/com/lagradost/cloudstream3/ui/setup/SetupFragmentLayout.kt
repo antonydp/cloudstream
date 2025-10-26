@@ -9,10 +9,11 @@ import android.widget.ArrayAdapter
 import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import androidx.preference.PreferenceManager
+import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.databinding.FragmentSetupLayoutBinding
-import com.lagradost.cloudstream3.mvvm.normalSafeApiCall
-import com.lagradost.cloudstream3.utils.UIHelper.fixPaddingStatusbar
+import com.lagradost.cloudstream3.mvvm.safe
+import com.lagradost.cloudstream3.utils.UIHelper.fixSystemBarsPadding
 import org.acra.ACRA
 
 
@@ -37,10 +38,10 @@ class SetupFragmentLayout : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        fixPaddingStatusbar(binding?.setupRoot)
+        fixSystemBarsPadding(binding?.setupRoot)
 
-        normalSafeApiCall {
-            val ctx = context ?: return@normalSafeApiCall
+        safe {
+            val ctx = context ?: return@safe
 
             val settingsManager = PreferenceManager.getDefaultSharedPreferences(ctx)
 
@@ -67,7 +68,7 @@ class SetupFragmentLayout : Fragment() {
                         .apply()
                     activity?.recreate()
                 }
-                acraSwitch.setOnCheckedChangeListener { _, enableCrashReporting ->
+                /*acraSwitch.setOnCheckedChangeListener { _, enableCrashReporting ->
                     // Use same pref as in settings
                     settingsManager.edit().putBoolean(ACRA.PREF_DISABLE_ACRA, !enableCrashReporting)
                         .apply()
@@ -82,10 +83,11 @@ class SetupFragmentLayout : Fragment() {
                 crashReportingText.text =
                     getText(
                         if (enableCrashReporting) R.string.bug_report_settings_off else R.string.bug_report_settings_on
-                    )
+                    )*/
 
 
                 nextBtt.setOnClickListener {
+                    setKey(HAS_DONE_SETUP_KEY, true)
                     findNavController().navigate(R.id.navigation_home)
                 }
 

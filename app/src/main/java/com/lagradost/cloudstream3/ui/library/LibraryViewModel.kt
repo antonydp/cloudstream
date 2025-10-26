@@ -9,7 +9,8 @@ import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
 import com.lagradost.cloudstream3.MainActivity
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.mvvm.Resource
-import com.lagradost.cloudstream3.syncproviders.AccountManager.Companion.SyncApis
+import com.lagradost.cloudstream3.mvvm.throwAbleToResource
+import com.lagradost.cloudstream3.syncproviders.AccountManager
 import com.lagradost.cloudstream3.syncproviders.SyncAPI
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.DataStoreHelper
@@ -23,21 +24,28 @@ enum class ListSorting(@StringRes val stringRes: Int) {
     UpdatedOld(R.string.sort_updated_old),
     AlphabeticalA(R.string.sort_alphabetical_a),
     AlphabeticalZ(R.string.sort_alphabetical_z),
+    ReleaseDateNew(R.string.sort_release_date_new),
+    ReleaseDateOld(R.string.sort_release_date_old),
 }
 
 const val LAST_SYNC_API_KEY = "last_sync_api"
 
 class LibraryViewModel : ViewModel() {
+    fun switchPage(page: Int) {
+        _currentPage.postValue(page)
+    }
+
+    private val _currentPage: MutableLiveData<Int> = MutableLiveData(0)
+    val currentPage: LiveData<Int> = _currentPage
+
     private val _pages: MutableLiveData<Resource<List<SyncAPI.Page>>> = MutableLiveData(null)
     val pages: LiveData<Resource<List<SyncAPI.Page>>> = _pages
-
-    var currentPage: Int = 0
 
     private val _currentApiName: MutableLiveData<String> = MutableLiveData("")
     val currentApiName: LiveData<String> = _currentApiName
 
     private val availableSyncApis
-        get() = SyncApis.filter { it.hasAccount() }
+        get() = AccountManager.syncApis.filter { it.isAvailable }
 
     var currentSyncApi = availableSyncApis.let { allApis ->
         val lastSelection = getKey<String>("$currentAccount/$LAST_SYNC_API_KEY")
@@ -90,12 +98,17 @@ class LibraryViewModel : ViewModel() {
             currentSyncApi?.let { repo ->
                 _currentApiName.postValue(repo.name)
                 _pages.postValue(Resource.Loading())
-                val libraryResource = repo.getPersonalLibrary()
-                if (libraryResource is Resource.Failure) {
-                    _pages.postValue(libraryResource)
+                val libraryResource = repo.library()
+                val err = libraryResource.exceptionOrNull()
+                if (err != null) {
+                    _pages.postValue(throwAbleToResource(err))
                     return@let
                 }
-                val library = (libraryResource as? Resource.Success)?.value ?: return@let
+                val library = libraryResource.getOrNull()
+                if (library == null) {
+                    _pages.postValue(Resource.Failure(false, "Unable to fetch library"))
+                    return@let
+                }
 
                 sortingMethods = library.supportedListSorting.toList()
                 repo.requireLibraryRefresh = false
@@ -108,8 +121,11 @@ class LibraryViewModel : ViewModel() {
                 }
 
                 val desiredSortingMethod =
-                    ListSorting.values().getOrNull(DataStoreHelper.librarySortingMode)
-                if (desiredSortingMethod != null && library.supportedListSorting.contains(desiredSortingMethod)) {
+                    ListSorting.entries.getOrNull(DataStoreHelper.librarySortingMode)
+                if (desiredSortingMethod != null && library.supportedListSorting.contains(
+                        desiredSortingMethod
+                    )
+                ) {
                     sort(desiredSortingMethod, null, pages)
                 } else {
                     // null query = no sorting
@@ -120,11 +136,11 @@ class LibraryViewModel : ViewModel() {
     }
 
     init {
-        MainActivity.reloadHomeEvent += ::reloadPages
+        MainActivity.reloadLibraryEvent += ::reloadPages
     }
 
     override fun onCleared() {
-        MainActivity.reloadHomeEvent -= ::reloadPages
+        MainActivity.reloadLibraryEvent -= ::reloadPages
         super.onCleared()
     }
 }

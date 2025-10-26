@@ -2,56 +2,44 @@ package com.lagradost.cloudstream3.syncproviders.providers
 
 import android.util.Log
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.lagradost.cloudstream3.AcraApplication.Companion.getKey
-import com.lagradost.cloudstream3.AcraApplication.Companion.removeKey
-import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
+import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.ErrorLoadingException
 import com.lagradost.cloudstream3.R
-import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.mvvm.logError
-import com.lagradost.cloudstream3.subtitles.AbstractSubApi
 import com.lagradost.cloudstream3.subtitles.AbstractSubtitleEntities
-import com.lagradost.cloudstream3.syncproviders.AuthAPI
-import com.lagradost.cloudstream3.syncproviders.InAppAuthAPI
-import com.lagradost.cloudstream3.syncproviders.InAppAuthAPIManager
+import com.lagradost.cloudstream3.syncproviders.AuthData
+import com.lagradost.cloudstream3.syncproviders.AuthLoginRequirement
+import com.lagradost.cloudstream3.syncproviders.AuthLoginResponse
+import com.lagradost.cloudstream3.syncproviders.AuthToken
+import com.lagradost.cloudstream3.syncproviders.AuthUser
+import com.lagradost.cloudstream3.syncproviders.SubtitleAPI
+import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.utils.AppUtils
-import okhttp3.Interceptor
-import okhttp3.Response
+import com.lagradost.cloudstream3.utils.AppUtils.parseJson
+import com.lagradost.cloudstream3.utils.AppUtils.toJson
+import com.lagradost.cloudstream3.utils.SubtitleHelper.fromCodeToLangTagIETF
+import com.lagradost.cloudstream3.utils.SubtitleHelper.fromCodeToOpenSubtitlesTag
 
-class OpenSubtitlesApi(index: Int) : InAppAuthAPIManager(index), AbstractSubApi {
-    override val idPrefix = "opensubtitles"
+class OpenSubtitlesApi : SubtitleAPI() {
     override val name = "OpenSubtitles"
+    override val idPrefix = "opensubtitles"
+
     override val icon = R.drawable.open_subtitles_icon
-    override val requiresPassword = true
-    override val requiresUsername = true
+    override val hasInApp = true
+    override val inAppLoginRequirement = AuthLoginRequirement(
+        password = true,
+        username = true,
+    )
+
     override val createAccountUrl = "https://www.opensubtitles.com/en/users/sign_up"
 
     companion object {
-        const val OPEN_SUBTITLES_USER_KEY: String = "open_subtitles_user" // user data like profile
-        const val apiKey = "uyBLgFD17MgrYmA0gSXoKllMJBelOYj2"
-        const val host = "https://api.opensubtitles.com/api/v1"
+        const val API_KEY = "uyBLgFD17MgrYmA0gSXoKllMJBelOYj2"
+        const val HOST = "https://api.opensubtitles.com/api/v1"
         const val TAG = "OPENSUBS"
-        const val coolDownDuration: Long = 1000L * 30L // CoolDown if 429 error code in ms
+        const val COOLDOWN_DURATION: Long = 1000L * 30L // CoolDown if 429 error code in ms
         var currentCoolDown: Long = 0L
-        var currentSession: SubtitleOAuthEntity? = null
-    }
-
-    private val headerInterceptor = OpenSubtitleInterceptor()
-
-    /** Automatically adds required api headers */
-    private class OpenSubtitleInterceptor : Interceptor {
-        /** Required user agent! */
-        private val userAgent = "Cloudstream3 v0.1"
-        override fun intercept(chain: Interceptor.Chain): Response {
-            return chain.proceed(
-                chain.request().newBuilder()
-                    .removeHeader("user-agent")
-                    .addHeader("user-agent", userAgent)
-                    .addHeader("Api-Key", apiKey)
-                    .build()
-            )
-        }
+        const val userAgent = "Cloudstream3 v0.2"
+        val headers = mapOf("user-agent" to userAgent, "Api-Key" to API_KEY)
     }
 
     private fun canDoRequest(): Boolean {
@@ -65,127 +53,59 @@ class OpenSubtitlesApi(index: Int) : InAppAuthAPIManager(index), AbstractSubApi 
     }
 
     private fun throwGotTooManyRequests() {
-        currentCoolDown = unixTimeMs + coolDownDuration
+        currentCoolDown = unixTimeMs + COOLDOWN_DURATION
         throw ErrorLoadingException("Too many requests")
     }
 
-    private fun getAuthKey(): SubtitleOAuthEntity? {
-        return getKey(accountId, OPEN_SUBTITLES_USER_KEY)
+    override suspend fun refreshToken(token: AuthToken): AuthToken? {
+        return login(parseJson<AuthLoginResponse>(token.payload ?: return null))
     }
 
-    private fun setAuthKey(data: SubtitleOAuthEntity?) {
-        if (data == null) removeKey(accountId, OPEN_SUBTITLES_USER_KEY)
-        currentSession = data
-        setKey(accountId, OPEN_SUBTITLES_USER_KEY, data)
+    override suspend fun user(token: AuthToken?): AuthUser? {
+        val user = parseJson<AuthLoginResponse>(token?.payload ?: return null)
+        val username = user.username ?: return null
+        return AuthUser(
+            id = username.hashCode(),
+            name = username
+        )
     }
 
-    override fun loginInfo(): AuthAPI.LoginInfo? {
-        getAuthKey()?.let { user ->
-            return AuthAPI.LoginInfo(
-                profilePicture = null,
-                name = user.user,
-                accountIndex = accountIndex
-            )
-        }
-        return null
-    }
+    override suspend fun login(form: AuthLoginResponse): AuthToken? {
+        val username = form.username ?: return null
+        val password = form.password ?: return null
 
-    override fun getLatestLoginData(): InAppAuthAPI.LoginData? {
-        val current = getAuthKey() ?: return null
-        return InAppAuthAPI.LoginData(username = current.user, current.pass)
-    }
-
-    /*
-        Authorize app to connect to API, using username/password.
-        Required to run at startup.
-        Returns OAuth entity with valid access token.
-    */
-    override suspend fun initialize() {
-        currentSession = getAuthKey() ?: return // just in case the following fails
-        initLogin(currentSession?.user ?: return, currentSession?.pass ?: return)
-    }
-
-    override fun logOut() {
-        setAuthKey(null)
-        removeAccountKeys()
-        currentSession = getAuthKey()
-    }
-
-    private suspend fun initLogin(username: String, password: String): Boolean {
-        //Log.i(TAG, "DATA = [$username] [$password]")
         val response = app.post(
-            url = "$host/login",
+            url = "$HOST/login",
             headers = mapOf(
                 "Content-Type" to "application/json",
-            ),
-            data = mapOf(
+            ) + headers,
+            json = mapOf(
                 "username" to username,
                 "password" to password
             ),
-            interceptor = headerInterceptor
+        ).parsed<OAuthToken>()
+
+        return AuthToken(
+            accessToken = response.token
+                ?: throw ErrorLoadingException("Invalid password or username"),
+            /// JWT token is valid 24 hours after successfully authentication of user
+            accessTokenLifetime = unixTime + 60 * 60 * 24,
+            payload = form.toJson()
         )
-        //Log.i(TAG, "Responsecode = ${response.code}")
-        //Log.i(TAG, "Result => ${response.text}")
-
-        if (response.isSuccessful) {
-            AppUtils.tryParseJson<OAuthToken>(response.text)?.let { token ->
-                setAuthKey(
-                    SubtitleOAuthEntity(
-                        user = username,
-                        pass = password,
-                        access_token = token.token ?: run {
-                            return false
-                        })
-                )
-            }
-            return true
-        }
-        return false
-    }
-
-    override suspend fun login(data: InAppAuthAPI.LoginData): Boolean {
-        val username = data.username ?: throw ErrorLoadingException("Requires Username")
-        val password = data.password ?: throw ErrorLoadingException("Requires Password")
-        switchToNewAccount()
-        try {
-            if (initLogin(username, password)) {
-                registerAccount()
-                return true
-            }
-        } catch (e: Exception) {
-            logError(e)
-            switchToOldAccount()
-        }
-        switchToOldAccount()
-        return false
-    }
-
-    /**
-     * Some languages do not use the normal country codes on OpenSubtitles
-     * */
-    private val languageExceptions = mapOf<String, String>(
-//        "pt" to "pt-PT",
-//        "pt" to "pt-BR"
-    )
-
-    private fun fixLanguage(language: String?): String? {
-        return languageExceptions[language] ?: language
-    }
-
-    // O(n) but good enough, BiMap did not want to work properly
-    private fun fixLanguageReverse(language: String?): String? {
-        return languageExceptions.entries.firstOrNull { it.value == language }?.key ?: language
     }
 
     /**
      * Fetch subtitles using token authenticated on previous method (see authorize).
      * Returns list of Subtitles which user can select to download (see load).
      * */
-    override suspend fun search(query: AbstractSubtitleEntities.SubtitleSearch): List<AbstractSubtitleEntities.SubtitleEntity>? {
+    override suspend fun search(
+        auth : AuthData?,
+        query: AbstractSubtitleEntities.SubtitleSearch
+    ): List<AbstractSubtitleEntities.SubtitleEntity>? {
         throwIfCantDoRequest()
-        val fixedLang = fixLanguage(query.lang)
+        val langOpenSubTag = fromCodeToOpenSubtitlesTag(query.lang) ?: query.lang ?: ""
 
-        val imdbId = query.imdb ?: 0
+        val imdbId = query.imdbId?.replace("tt", "")?.toInt() ?: 0
         val queryText = query.query
         val epNum = query.epNumber ?: 0
         val seasonNum = query.seasonNumber ?: 0
@@ -196,17 +116,17 @@ class OpenSubtitlesApi(index: Int) : InAppAuthAPIManager(index), AbstractSubApi 
 
         val searchQueryUrl = when (imdbId > 0) {
             //Use imdb_id to search if its valid
-            true -> "$host/subtitles?imdb_id=$imdbId&languages=${fixedLang}$yearQuery$epQuery$seasonQuery"
-            false -> "$host/subtitles?query=${queryText}&languages=${fixedLang}$yearQuery$epQuery$seasonQuery"
+            true -> "$HOST/subtitles?imdb_id=$imdbId&languages=${langOpenSubTag}$yearQuery$epQuery$seasonQuery"
+            false -> "$HOST/subtitles?query=${queryText}&languages=${langOpenSubTag}$yearQuery$epQuery$seasonQuery"
         }
 
         val req = app.get(
             url = searchQueryUrl,
             headers = mapOf(
                 Pair("Content-Type", "application/json")
-            ),
-            interceptor = headerInterceptor
+            ) + headers,
         )
+        Log.i(TAG, "searchQueryUrl => ${searchQueryUrl}")
         Log.i(TAG, "Search Req => ${req.text}")
         if (!req.isSuccessful) {
             if (req.code == 429)
@@ -227,12 +147,12 @@ class OpenSubtitlesApi(index: Int) : InAppAuthAPIManager(index), AbstractSubApi 
                 //Use any valid name/title in hierarchy
                 val name = filename ?: featureDetails?.movieName ?: featureDetails?.title
                 ?: featureDetails?.parentTitle ?: attr.release ?: query.query
-                val lang = fixLanguageReverse(attr.language) ?: ""
+                val langTagIETF = fromCodeToLangTagIETF(attr.language) ?: ""
                 val resEpNum = featureDetails?.episodeNumber ?: query.epNumber
                 val resSeasonNum = featureDetails?.seasonNumber ?: query.seasonNumber
                 val year = featureDetails?.year ?: query.year
                 val type = if ((resSeasonNum ?: 0) > 0) TvType.TvSeries else TvType.Movie
-                val isHearingImpaired = attr.hearing_impaired ?: false
+                val isHearingImpaired = attr.hearingImpaired ?: false
                 //Log.i(TAG, "Result id/name => ${item.id} / $name")
                 item.attributes?.files?.forEach { file ->
                     val resultData = file.fileId?.toString() ?: ""
@@ -241,7 +161,7 @@ class OpenSubtitlesApi(index: Int) : InAppAuthAPIManager(index), AbstractSubApi 
                         AbstractSubtitleEntities.SubtitleEntity(
                             idPrefix = this.idPrefix,
                             name = name,
-                            lang = lang,
+                            lang = langTagIETF,
                             data = resultData,
                             type = type,
                             source = this.name,
@@ -261,23 +181,27 @@ class OpenSubtitlesApi(index: Int) : InAppAuthAPIManager(index), AbstractSubApi 
         Process data returned from search.
         Returns string url for the subtitle file.
     */
-    override suspend fun load(data: AbstractSubtitleEntities.SubtitleEntity): String? {
+
+    override suspend fun load(
+        auth : AuthData?,
+        subtitle: AbstractSubtitleEntities.SubtitleEntity
+    ): String? {
+        if(auth == null) return null
         throwIfCantDoRequest()
 
         val req = app.post(
-            url = "$host/download",
+            url = "$HOST/download",
             headers = mapOf(
                 Pair(
                     "Authorization",
-                    "Bearer ${currentSession?.access_token ?: throw ErrorLoadingException("No access token active in current session")}"
+                    "Bearer ${auth.token.accessToken ?: throw ErrorLoadingException("No access token active in current session")}"
                 ),
                 Pair("Content-Type", "application/json"),
                 Pair("Accept", "*/*")
-            ),
+            ) + headers,
             data = mapOf(
-                Pair("file_id", data.data)
-            ),
-            interceptor = headerInterceptor
+                Pair("file_id", subtitle.data)
+            )
         )
         Log.i(TAG, "Request result  => (${req.code}) ${req.text}")
         //Log.i(TAG, "Request headers => ${req.headers}")
@@ -293,13 +217,6 @@ class OpenSubtitlesApi(index: Int) : InAppAuthAPIManager(index), AbstractSubApi 
         }
         return null
     }
-
-
-    data class SubtitleOAuthEntity(
-        var user: String,
-        var pass: String,
-        var access_token: String,
-    )
 
     data class OAuthToken(
         @JsonProperty("token") var token: String? = null,
@@ -323,7 +240,7 @@ class OpenSubtitlesApi(index: Int) : InAppAuthAPIManager(index), AbstractSubApi 
         @JsonProperty("url") var url: String? = null,
         @JsonProperty("files") var files: List<ResultFiles>? = listOf(),
         @JsonProperty("feature_details") var featDetails: ResultFeatureDetails? = ResultFeatureDetails(),
-        @JsonProperty("hearing_impaired") var hearing_impaired: Boolean? = null,
+        @JsonProperty("hearing_impaired") var hearingImpaired: Boolean? = null,
     )
 
     data class ResultFiles(

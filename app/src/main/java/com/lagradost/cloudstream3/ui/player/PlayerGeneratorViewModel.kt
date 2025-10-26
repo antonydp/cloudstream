@@ -5,22 +5,23 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.mvvm.Resource
 import com.lagradost.cloudstream3.mvvm.launchSafe
 import com.lagradost.cloudstream3.mvvm.logError
-import com.lagradost.cloudstream3.mvvm.normalSafeApiCall
+import com.lagradost.cloudstream3.mvvm.safe
 import com.lagradost.cloudstream3.mvvm.safeApiCall
 import com.lagradost.cloudstream3.ui.result.ResultEpisode
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.EpisodeSkip
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorUri
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class PlayerGeneratorViewModel : ViewModel() {
     companion object {
-        val TAG = "PlayViewGen"
+        const val TAG = "PlayViewGen"
     }
 
     private var generator: IGenerator? = null
@@ -44,6 +45,8 @@ class PlayerGeneratorViewModel : ViewModel() {
      * Save the Episode ID to prevent starting multiple link loading Jobs when preloading links.
      */
     private var currentLoadingEpisodeId: Int? = null
+
+    var forceClearCache = false
 
     fun setSubtitleYear(year: Int?) {
         _currentSubtitleYear.postValue(year)
@@ -92,7 +95,7 @@ class PlayerGeneratorViewModel : ViewModel() {
                 if (generator?.hasCache == true && generator?.hasNext() == true) {
                     safeApiCall {
                         generator?.generateLinks(
-                            type = LoadType.InApp,
+                            sourceTypes = LOADTYPE_INAPP,
                             clearCache = false,
                             callback = {},
                             subtitleCallback = {},
@@ -110,19 +113,33 @@ class PlayerGeneratorViewModel : ViewModel() {
         }
     }
 
+    fun getLoadResponse(): LoadResponse? {
+        return safe { (generator as? RepoLinkGenerator?)?.page }
+    }
+
     fun getMeta(): Any? {
-        return normalSafeApiCall { generator?.getCurrent() }
+        return safe { generator?.getCurrent() }
     }
 
     fun getAllMeta(): List<Any>? {
-        return normalSafeApiCall { generator?.getAll() }
+        return safe { generator?.getAll() }
     }
 
     fun getNextMeta(): Any? {
-        return normalSafeApiCall {
-            if (generator?.hasNext() == false) return@normalSafeApiCall null
+        return safe {
+            if (generator?.hasNext() == false) return@safe null
             generator?.getCurrent(offset = 1)
         }
+    }
+
+    fun loadThisEpisode(index:Int) {
+        generator?.goto(index)
+        loadLinks()
+    }
+
+    fun getCurrentIndex():Int?{
+        val repoGen = generator as? RepoLinkGenerator ?: return null
+        return repoGen.videoIndex
     }
 
     fun attachGenerator(newGenerator: IGenerator?) {
@@ -131,18 +148,21 @@ class PlayerGeneratorViewModel : ViewModel() {
         }
     }
 
+    private var extraSubtitles : MutableSet<SubtitleData> = mutableSetOf()
+
     /**
      * If duplicate nothing will happen
      * */
-    fun addSubtitles(file: Set<SubtitleData>) {
-        val currentSubs = _currentSubs.value ?: emptySet()
-        // Prevent duplicates
-        val allSubs = (currentSubs + file).distinct().toSet()
-        // Do not post if there's nothing new
-        // Posting will refresh subtitles which will in turn
-        // make the subs to english if previously unselected
-        if (allSubs != currentSubs) {
-            _currentSubs.postValue(allSubs)
+    fun addSubtitles(file: Set<SubtitleData>) = synchronized(extraSubtitles) {
+        extraSubtitles += file
+        val current = _currentSubs.value ?: emptySet()
+        val next = extraSubtitles + current
+
+        // if it is of a different size then we have added distinct items
+        if (next.size != current.size) {
+            // Posting will refresh subtitles which will in turn
+            // make the subs to english if previously unselected
+            _currentSubs.postValue(next)
         }
     }
 
@@ -168,11 +188,15 @@ class PlayerGeneratorViewModel : ViewModel() {
         }
     }
 
-    fun loadLinks(clearCache: Boolean = false, type: LoadType = LoadType.InApp) {
+    fun loadLinks(sourceTypes: Set<ExtractorLinkType> = LOADTYPE_INAPP) {
         Log.i(TAG, "loadLinks")
         currentJob?.cancel()
 
         currentJob = viewModelScope.launchSafe {
+            // if we load links then we clear the prev loaded links
+            synchronized(extraSubtitles) {
+                extraSubtitles.clear()
+            }
             val currentLinks = mutableSetOf<Pair<ExtractorLink?, ExtractorUri?>>()
             val currentSubs = mutableSetOf<SubtitleData>()
 
@@ -183,26 +207,34 @@ class PlayerGeneratorViewModel : ViewModel() {
             // load more data
             _loadingLinks.postValue(Resource.Loading())
             val loadingState = safeApiCall {
-                generator?.generateLinks(type = type, clearCache = clearCache, callback = {
-                    currentLinks.add(it)
-                    // Clone to prevent ConcurrentModificationException
-                    normalSafeApiCall {
-                        // Extra normalSafeApiCall since .toSet() iterates.
-                        _currentLinks.postValue(currentLinks.toSet())
-                    }
-                }, subtitleCallback = {
-                    currentSubs.add(it)
-                    normalSafeApiCall {
-                        _currentSubs.postValue(currentSubs.toSet())
-                    }
-                })
+                generator?.generateLinks(
+                    sourceTypes = sourceTypes,
+                    clearCache = forceClearCache,
+                    callback = {
+                        synchronized(currentLinks) {
+                            currentLinks.add(it)
+                            // Clone to prevent ConcurrentModificationException
+                            safe {
+                                // Extra safe since .toSet() iterates.
+                                _currentLinks.postValue(currentLinks.toSet())
+                            }
+                        }
+                    },
+                    subtitleCallback = {
+                        synchronized(extraSubtitles) {
+                            currentSubs.add(it)
+                            safe {
+                                _currentSubs.postValue(currentSubs + extraSubtitles)
+                            }
+                        }
+                    })
             }
 
             _loadingLinks.postValue(loadingState)
             _currentLinks.postValue(currentLinks)
-            _currentSubs.postValue(
-                currentSubs.union(_currentSubs.value ?: emptySet())
-            )
+            synchronized(extraSubtitles) {
+                _currentSubs.postValue(currentSubs + extraSubtitles)
+            }
         }
 
     }

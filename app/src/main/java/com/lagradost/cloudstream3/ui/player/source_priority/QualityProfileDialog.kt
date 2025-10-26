@@ -7,10 +7,12 @@ import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.databinding.PlayerQualityProfileDialogBinding
 import com.lagradost.cloudstream3.ui.player.source_priority.QualityDataHelper.getProfileName
 import com.lagradost.cloudstream3.ui.player.source_priority.QualityDataHelper.getProfiles
-import com.lagradost.cloudstream3.ui.result.txt
+import com.lagradost.cloudstream3.utils.txt
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showBottomDialog
 import com.lagradost.cloudstream3.utils.UIHelper.dismissSafe
+import com.lagradost.cloudstream3.utils.UIHelper.fixSystemBarsPadding
+import com.lagradost.cloudstream3.utils.setText
 
 class QualityProfileDialog(
     val activity: FragmentActivity,
@@ -24,6 +26,7 @@ class QualityProfileDialog(
         val binding = PlayerQualityProfileDialogBinding.inflate(this.layoutInflater, null, false)
 
         setContentView(binding.root)//R.layout.player_quality_profile_dialog)
+        fixSystemBarsPadding(binding.root)
         /*val profilesRecyclerView: RecyclerView = profiles_recyclerview
         val useBtt: View = use_btt
         val editBtt: View = edit_btt
@@ -37,12 +40,11 @@ class QualityProfileDialog(
             }
 
             fun refreshProfiles() {
-                currentlySelectedProfileText.text = getProfileName(usedProfile).asString(context)
-                (profilesRecyclerview.adapter as? ProfilesAdapter)?.updateList(getProfiles())
+                currentlySelectedProfileText.setText(getProfileName(usedProfile))
+                (profilesRecyclerview.adapter as? ProfilesAdapter)?.submitList(getProfiles())
             }
 
             profilesRecyclerview.adapter = ProfilesAdapter(
-                mutableListOf(),
                 usedProfile,
             ) { oldIndex: Int?, newIndex: Int ->
                 profilesRecyclerview.adapter?.notifyItemChanged(newIndex)
@@ -65,7 +67,7 @@ class QualityProfileDialog(
 
             setDefaultBtt.setOnClickListener {
                 val currentProfile = getCurrentProfile() ?: return@setOnClickListener
-                val choices = QualityDataHelper.QualityProfileType.values()
+                val choices = QualityDataHelper.QualityProfileType.entries
                     .filter { it != QualityDataHelper.QualityProfileType.None }
                 val choiceNames = choices.map { txt(it.stringRes).asString(context) }
 

@@ -3,22 +3,26 @@ package com.lagradost.cloudstream3.ui.result
 import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
+import androidx.core.view.ViewCompat
 import com.lagradost.cloudstream3.CommonActivity.screenHeight
 import com.lagradost.cloudstream3.CommonActivity.screenWidth
+import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.ui.player.CSPlayerEvent
 import com.lagradost.cloudstream3.ui.player.PlayerEventSource
 import com.lagradost.cloudstream3.ui.player.SubtitleData
-import com.lagradost.cloudstream3.utils.IOnBackPressed
+import com.lagradost.cloudstream3.utils.BackPressedCallbackHelper.attachBackPressedCallback
+import com.lagradost.cloudstream3.utils.BackPressedCallbackHelper.detachBackPressedCallback
+import com.lagradost.cloudstream3.utils.UIHelper.fixSystemBarsPadding
 
-
-open class ResultTrailerPlayer : ResultFragmentPhone(), IOnBackPressed {
+open class ResultTrailerPlayer : ResultFragmentPhone() {
 
     override var lockRotation = false
     override var isFullScreenPlayer = false
@@ -28,7 +32,7 @@ open class ResultTrailerPlayer : ResultFragmentPhone(), IOnBackPressed {
         const val TAG = "RESULT_TRAILER"
     }
 
-    var playerWidthHeight: Pair<Int, Int>? = null
+    private var playerWidthHeight: Pair<Int, Int>? = null
 
     override fun nextEpisode() {}
 
@@ -45,6 +49,21 @@ open class ResultTrailerPlayer : ResultFragmentPhone(), IOnBackPressed {
     }
 
     private fun fixPlayerSize() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            binding?.apply {
+                if (isFullScreenPlayer) {
+                    // Remove listener
+                    ViewCompat.setOnApplyWindowInsetsListener(root, null)
+                    root.overlay.clear() // Clear the cutout overlay
+                    root.setPadding(0, 0, 0, 0) // Reset padding for full screen
+                } else {
+                    // Reapply padding when not in full screen
+                    fixSystemBarsPadding(root)
+                    ViewCompat.requestApplyInsets(root)
+                }
+            }
+        }
+
         playerWidthHeight?.let { (w, h) ->
             if(w <= 0 || h <= 0) return@let
 
@@ -111,7 +130,7 @@ open class ResultTrailerPlayer : ResultFragmentPhone(), IOnBackPressed {
 
     override fun openOnlineSubPicker(
         context: Context,
-        imdbId: Long?,
+        loadResponse: LoadResponse?,
         dismissCallback: () -> Unit
     ) {
     }
@@ -154,6 +173,17 @@ open class ResultTrailerPlayer : ResultFragmentPhone(), IOnBackPressed {
         }
         fixPlayerSize()
         uiReset()
+
+        if (isFullScreenPlayer) {
+            activity?.attachBackPressedCallback("ResultTrailerPlayer") {
+                updateFullscreen(false)
+            }
+        } else activity?.detachBackPressedCallback("ResultTrailerPlayer")
+    }
+
+    override fun updateUIVisibility() {
+        super.updateUIVisibility()
+        playerBinding?.playerGoBackHolder?.isVisible = false
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -169,15 +199,6 @@ open class ResultTrailerPlayer : ResultFragmentPhone(), IOnBackPressed {
             player.handleEvent(CSPlayerEvent.Play, PlayerEventSource.UI)
             updateUIVisibility()
             fixPlayerSize()
-        }
-    }
-
-    override fun onBackPressed(): Boolean {
-        return if (isFullScreenPlayer) {
-            updateFullscreen(false)
-            false
-        } else {
-            true
         }
     }
 }

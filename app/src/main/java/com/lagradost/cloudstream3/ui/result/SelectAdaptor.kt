@@ -6,7 +6,10 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
 import com.lagradost.cloudstream3.databinding.ResultSelectionBinding
-import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.isTrueTvSettings
+import com.lagradost.cloudstream3.ui.settings.Globals.TV
+import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
+import com.lagradost.cloudstream3.utils.UiText
+import com.lagradost.cloudstream3.utils.setText
 
 typealias SelectData = Pair<UiText?, Any>
 
@@ -62,8 +65,7 @@ class SelectAdaptor(val callback: (Any) -> Unit) : RecyclerView.Adapter<Recycler
     }
 
 
-    private class SelectViewHolder
-    constructor(
+    private class SelectViewHolder(
         binding: ResultSelectionBinding,
     ) :
         RecyclerView.ViewHolder(binding.root) {
@@ -72,8 +74,7 @@ class SelectAdaptor(val callback: (Any) -> Unit) : RecyclerView.Adapter<Recycler
         fun bind(
             data: SelectData, isSelected: Boolean, callback: (Any) -> Unit
         ) {
-            val isTrueTv = isTrueTvSettings()
-            if (isTrueTv) {
+            if (isLayout(TV)) {
                 item.isFocusable = true
                 item.isFocusableInTouchMode = true
             }

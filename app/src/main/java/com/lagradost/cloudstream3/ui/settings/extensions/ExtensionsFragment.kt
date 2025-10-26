@@ -28,11 +28,14 @@ import com.lagradost.cloudstream3.mvvm.observeNullable
 import com.lagradost.cloudstream3.plugins.RepositoryManager
 import com.lagradost.cloudstream3.ui.result.FOCUS_SELF
 import com.lagradost.cloudstream3.ui.result.setLinearListLayout
-import com.lagradost.cloudstream3.ui.result.setText
-import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.isTrueTvSettings
+import com.lagradost.cloudstream3.utils.setText
+import com.lagradost.cloudstream3.ui.settings.Globals.TV
+import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
+import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.setSystemBarsPadding
+import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.setToolBarScrollFlags
 import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.setUpToolbar
-import com.lagradost.cloudstream3.utils.AppUtils.downloadAllPluginsDialog
-import com.lagradost.cloudstream3.utils.AppUtils.setDefaultFocus
+import com.lagradost.cloudstream3.utils.AppContextUtils.addRepositoryDialog
+import com.lagradost.cloudstream3.utils.AppContextUtils.setDefaultFocus
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.Coroutines.main
 import com.lagradost.cloudstream3.utils.UIHelper.dismissSafe
@@ -82,10 +85,9 @@ class ExtensionsFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        //context?.fixPaddingStatusbar(extensions_root)
-
         setUpToolbar(R.string.extensions)
-
+        setSystemBarsPadding()
+        setToolBarScrollFlags()
 
         binding?.repoRecyclerView?.apply {
             setLinearListLayout(
@@ -96,7 +98,7 @@ class ExtensionsFragment : Fragment() {
                 nextLeft = R.id.nav_rail_view
             )
 
-            if (!isTrueTvSettings())
+            if (!isLayout(TV))
                 binding?.addRepoButton?.let { button ->
                     button.post {
                         setPadding(
@@ -160,7 +162,7 @@ class ExtensionsFragment : Fragment() {
         observe(extensionViewModel.repositories) {
             binding?.repoRecyclerView?.isVisible = it.isNotEmpty()
             binding?.blankRepoScreen?.isVisible = it.isEmpty()
-            (binding?.repoRecyclerView?.adapter as? RepoAdapter)?.updateList(it)
+            (binding?.repoRecyclerView?.adapter as? RepoAdapter)?.submitList(it.toList())
         }
 
         /*binding?.repoRecyclerView?.apply {
@@ -230,8 +232,15 @@ class ExtensionsFragment : Fragment() {
             dialog.show()
             (activity?.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager?)?.primaryClip?.getItemAt(
                 0
-            )?.text?.toString()?.let { copy ->
-                binding.repoUrlInput.setText(copy)
+            )?.text?.toString()?.let { copiedText ->
+                if (copiedText.contains(RepoAdapter.SHAREABLE_REPO_SEPARATOR)) {
+                    // text is of format <repository name> : <repository url>
+                    val (name, url) = copiedText.split(RepoAdapter.SHAREABLE_REPO_SEPARATOR, limit = 2)
+                    binding.repoUrlInput.setText(url.trim())
+                    binding.repoNameInput.setText(name.trim())
+                } else {
+                    binding.repoUrlInput.setText(copiedText)
+                }
             }
 
 //            dialog.list_repositories?.setOnClickListener {
@@ -261,8 +270,7 @@ class ExtensionsFragment : Fragment() {
 
                         val fixedName = if (!name.isNullOrBlank()) name
                         else repository.name
-
-                        val newRepo = RepositoryData(fixedName, url)
+                        val newRepo = RepositoryData(repository.iconUrl,fixedName, url)
                         RepositoryManager.addRepository(newRepo)
                         extensionViewModel.loadStats()
                         extensionViewModel.loadRepositories()
@@ -271,9 +279,9 @@ class ExtensionsFragment : Fragment() {
                         if (plugins.isNullOrEmpty()) {
                             showToast(R.string.no_plugins_found_error, Toast.LENGTH_LONG)
                         } else {
-                            this@ExtensionsFragment.activity?.downloadAllPluginsDialog(
+                            this@ExtensionsFragment.activity?.addRepositoryDialog(
+                                fixedName,
                                 url,
-                                fixedName
                             )
                         }
                     }
@@ -285,7 +293,7 @@ class ExtensionsFragment : Fragment() {
             }
         }
 
-        val isTv = isTrueTvSettings()
+        val isTv = isLayout(TV)
         binding?.apply {
             addRepoButton.isGone = isTv
             addRepoButtonImageviewHolder.isVisible = isTv

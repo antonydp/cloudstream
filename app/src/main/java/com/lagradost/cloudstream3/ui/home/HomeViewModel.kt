@@ -6,9 +6,6 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lagradost.cloudstream3.APIHolder.apis
-import com.lagradost.cloudstream3.APIHolder.filterHomePageListByFilmQuality
-import com.lagradost.cloudstream3.APIHolder.filterProviderByPreferredMedia
-import com.lagradost.cloudstream3.APIHolder.filterSearchResultByFilmQuality
 import com.lagradost.cloudstream3.APIHolder.getApiFromNameNull
 import com.lagradost.cloudstream3.AcraApplication.Companion.context
 import com.lagradost.cloudstream3.AcraApplication.Companion.getKey
@@ -34,17 +31,21 @@ import com.lagradost.cloudstream3.ui.quicksearch.QuickSearchFragment
 import com.lagradost.cloudstream3.ui.search.SEARCH_ACTION_FOCUSED
 import com.lagradost.cloudstream3.ui.search.SearchClickCallback
 import com.lagradost.cloudstream3.ui.search.SearchHelper
-import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.isTrueTvSettings
-import com.lagradost.cloudstream3.utils.AppUtils.addProgramsToContinueWatching
-import com.lagradost.cloudstream3.utils.AppUtils.loadResult
+import com.lagradost.cloudstream3.ui.settings.Globals.TV
+import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
+import com.lagradost.cloudstream3.utils.AppContextUtils.addProgramsToContinueWatching
+import com.lagradost.cloudstream3.utils.AppContextUtils.filterHomePageListByFilmQuality
+import com.lagradost.cloudstream3.utils.AppContextUtils.filterProviderByPreferredMedia
+import com.lagradost.cloudstream3.utils.AppContextUtils.filterSearchResultByFilmQuality
+import com.lagradost.cloudstream3.utils.AppContextUtils.loadResult
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE
 import com.lagradost.cloudstream3.utils.DataStoreHelper
-import com.lagradost.cloudstream3.utils.DataStoreHelper.deleteAllBookmarkedData
 import com.lagradost.cloudstream3.utils.DataStoreHelper.deleteAllResumeStateIds
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getAllResumeStateIds
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getAllWatchStateIds
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getBookmarkedData
+import com.lagradost.cloudstream3.utils.DataStoreHelper.getCurrentAccount
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getLastWatched
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getResultWatchState
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getViewPos
@@ -53,6 +54,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 import java.util.EnumSet
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.collections.set
 
 class HomeViewModel : ViewModel() {
@@ -102,15 +104,13 @@ class HomeViewModel : ViewModel() {
         loadStoredData()
     }
 
-    fun deleteBookmarks() {
-        deleteAllBookmarkedData()
-        loadStoredData()
-    }
-
     var repo: APIRepository? = null
 
     private val _apiName = MutableLiveData<String>()
     val apiName: LiveData<String> = _apiName
+
+    private val _currentAccount = MutableLiveData<DataStoreHelper.Account?>()
+    val currentAccount: MutableLiveData<DataStoreHelper.Account?> = _currentAccount
 
     private val _randomItems = MutableLiveData<List<SearchResponse>?>(null)
     val randomItems: LiveData<List<SearchResponse>?> = _randomItems
@@ -130,7 +130,7 @@ class HomeViewModel : ViewModel() {
 
     private val _resumeWatching = MutableLiveData<List<SearchResponse>>()
     private val _preview = MutableLiveData<Resource<Pair<Boolean, List<LoadResponse>>>>()
-    private val previewResponses = mutableListOf<LoadResponse>()
+    private val previewResponses = CopyOnWriteArrayList<LoadResponse>()
     private val previewResponsesAdded = mutableSetOf<String>()
 
     val resumeWatching: LiveData<List<SearchResponse>> = _resumeWatching
@@ -138,7 +138,7 @@ class HomeViewModel : ViewModel() {
 
     private fun loadResumeWatching() = viewModelScope.launchSafe {
         val resumeWatchingResult = getResumeWatching()
-        if (isTrueTvSettings() && resumeWatchingResult != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        if (isLayout(TV) && resumeWatchingResult != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             ioSafe {
                 // this WILL crash on non tvs, so keep this inside a try catch
                 activity?.addProgramsToContinueWatching(resumeWatchingResult)
@@ -156,7 +156,7 @@ class HomeViewModel : ViewModel() {
             }
         }?.distinctBy { it.first } ?: return@launchSafe
 
-        val length = WatchType.values().size
+        val length = WatchType.entries.size
         val currentWatchTypes = mutableSetOf<WatchType>()
 
         for (watch in watchStatusIds) {
@@ -313,7 +313,7 @@ class HomeViewModel : ViewModel() {
 
         if (repo?.hasMainPage != true) {
             _page.postValue(Resource.Success(emptyMap()))
-            _preview.postValue(Resource.Failure(false, null, null, "No homepage"))
+            _preview.postValue(Resource.Failure(false, "No homepage"))
             return@ioSafe
         }
 
@@ -332,7 +332,13 @@ class HomeViewModel : ViewModel() {
                             val filteredList =
                                 context?.filterHomePageListByFilmQuality(list) ?: list
                             expandable[list.name] =
-                                ExpandableHomepageList(filteredList, 1, home.hasNext)
+                                ExpandableHomepageList(
+                                    filteredList.copy(
+                                        list = CopyOnWriteArrayList(
+                                            filteredList.list
+                                        )
+                                    ), 1, home.hasNext
+                                )
                         }
                     }
 
@@ -347,8 +353,7 @@ class HomeViewModel : ViewModel() {
                         val currentList =
                             items.shuffled().filter { it.list.isNotEmpty() }
                                 .flatMap { it.list }
-                                .distinctBy { it.url }
-                                .toList()
+                                .distinctBy { it.url }.toList()
 
                         if (currentList.isNotEmpty()) {
                             val randomItems =
@@ -370,8 +375,6 @@ class HomeViewModel : ViewModel() {
                         _preview.postValue(
                             Resource.Failure(
                                 false,
-                                null,
-                                null,
                                 "No homepage responses"
                             )
                         )
@@ -386,7 +389,9 @@ class HomeViewModel : ViewModel() {
             }
 
             is Resource.Failure -> {
+                @Suppress("UNNECESSARY_NOT_NULL_ASSERTION")
                 _page.postValue(data!!)
+                @Suppress("UNNECESSARY_NOT_NULL_ASSERTION")
                 _preview.postValue(data!!)
             }
 
@@ -396,13 +401,10 @@ class HomeViewModel : ViewModel() {
     }
 
     fun click(callback: SearchClickCallback) {
-        if (callback.action == SEARCH_ACTION_FOCUSED) {
-            //focusCallback(callback.card)
-        } else {
+        if (callback.action != SEARCH_ACTION_FOCUSED) {
             SearchHelper.handleSearchClickCallback(callback)
         }
     }
-
 
     private val _popup = MutableLiveData<Pair<ExpandableHomepageList, (() -> Unit)?>?>(null)
     val popup: LiveData<Pair<ExpandableHomepageList, (() -> Unit)?>?> = _popup
@@ -430,11 +432,18 @@ class HomeViewModel : ViewModel() {
         loadAndCancel(DataStoreHelper.currentHomePage, true)
     }
 
+    private fun reloadAccount(unused: Boolean = false) {
+        _currentAccount.postValue(
+            getCurrentAccount()
+        )
+    }
+
     init {
         MainActivity.bookmarksUpdatedEvent += ::bookmarksUpdated
         MainActivity.afterPluginsLoadedEvent += ::afterPluginsLoaded
         MainActivity.mainPluginsLoadedEvent += ::afterMainPluginsLoaded
         MainActivity.reloadHomeEvent += ::reloadHome
+        MainActivity.reloadAccountEvent += ::reloadAccount
     }
 
     override fun onCleared() {
@@ -442,6 +451,7 @@ class HomeViewModel : ViewModel() {
         MainActivity.afterPluginsLoadedEvent -= ::afterPluginsLoaded
         MainActivity.mainPluginsLoadedEvent -= ::afterMainPluginsLoaded
         MainActivity.reloadHomeEvent -= ::reloadHome
+        MainActivity.reloadAccountEvent -= ::reloadAccount
         super.onCleared()
     }
 
@@ -469,7 +479,7 @@ class HomeViewModel : ViewModel() {
     }
 
     fun click(load: LoadClickCallback) {
-        loadResult(load.response.url, load.response.apiName, load.action)
+        loadResult(load.response.url, load.response.apiName, load.response.name, load.action)
     }
 
     // only save the key if it is from UI, as we don't want internal functions changing the setting
@@ -515,12 +525,13 @@ class HomeViewModel : ViewModel() {
                 } else {
                     _page.postValue(Resource.Loading())
                     if (preferredApiName != null)
-                        _apiName.postValue(preferredApiName)
+                        _apiName.postValue(preferredApiName!!)
                 }
             } else {
                 // if the api is found, then set it to it and save key
                 if (fromUI) DataStoreHelper.currentHomePage = api.name
                 loadAndCancel(api)
             }
+            reloadAccount()
         }
 }

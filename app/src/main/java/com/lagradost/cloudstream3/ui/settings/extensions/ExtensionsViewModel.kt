@@ -12,14 +12,17 @@ import com.lagradost.cloudstream3.plugins.PluginManager
 import com.lagradost.cloudstream3.plugins.PluginManager.getPluginsOnline
 import com.lagradost.cloudstream3.plugins.RepositoryManager
 import com.lagradost.cloudstream3.plugins.RepositoryManager.PREBUILT_REPOSITORIES
-import com.lagradost.cloudstream3.ui.result.UiText
-import com.lagradost.cloudstream3.ui.result.txt
+import com.lagradost.cloudstream3.utils.UiText
+import com.lagradost.cloudstream3.utils.txt
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 
 data class RepositoryData(
+    @JsonProperty("iconUrl") val iconUrl: String?,
     @JsonProperty("name") val name: String,
     @JsonProperty("url") val url: String
-)
+){
+    constructor(name: String,url: String):this(null,name,url)
+}
 
 const val REPOSITORIES_KEY = "REPOSITORIES_KEY"
 

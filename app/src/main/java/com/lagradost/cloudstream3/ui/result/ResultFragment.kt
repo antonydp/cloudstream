@@ -3,12 +3,14 @@ package com.lagradost.cloudstream3.ui.result
 import android.os.Bundle
 import androidx.fragment.app.Fragment
 import androidx.preference.PreferenceManager
-import com.lagradost.cloudstream3.APIHolder.getApiDubstatusSettings
 import com.lagradost.cloudstream3.DubStatus
 import com.lagradost.cloudstream3.R
+import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.SeasonData
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.ui.result.EpisodeAdapter.Companion.getPlayerAction
+import com.lagradost.cloudstream3.utils.AppContextUtils.getApiDubstatusSettings
 import com.lagradost.cloudstream3.utils.DataStoreHelper
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getVideoWatchState
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getViewPos
@@ -39,7 +41,7 @@ data class ResultEpisode(
     val index: Int,
     val position: Long, // time in MS
     val duration: Long, // duration in MS
-    val rating: Int?,
+    val score: Score?,
     val description: String?,
     val isFiller: Boolean?,
     val tvType: TvType,
@@ -47,7 +49,12 @@ data class ResultEpisode(
     /**
      * Conveys if the episode itself is marked as watched
      **/
-    val videoWatchState: VideoWatchState
+    val videoWatchState: VideoWatchState,
+    /** Sum of all previous season episode counts + episode */
+    val totalEpisodeIndex: Int? = null,
+    val airDate: Long? = null,
+    val runTime: Int? = null,
+    val seasonData: SeasonData? = null,
 )
 
 fun ResultEpisode.getRealPosition(): Long {
@@ -77,33 +84,41 @@ fun buildResultEpisode(
     apiName: String,
     id: Int,
     index: Int,
-    rating: Int? = null,
+    rating: Score? = null,
     description: String? = null,
     isFiller: Boolean? = null,
     tvType: TvType,
     parentId: Int,
+    totalEpisodeIndex: Int? = null,
+    airDate: Long? = null,
+    runTime: Int? = null,
+    seasonData: SeasonData? = null,
 ): ResultEpisode {
     val posDur = getViewPos(id)
     val videoWatchState = getVideoWatchState(id) ?: VideoWatchState.None
     return ResultEpisode(
-        headerName,
-        name,
-        poster,
-        episode,
-        seasonIndex,
-        season,
-        data,
-        apiName,
-        id,
-        index,
-        posDur?.position ?: 0,
-        posDur?.duration ?: 0,
-        rating,
-        description,
-        isFiller,
-        tvType,
-        parentId,
-        videoWatchState
+        headerName = headerName,
+        name = name,
+        poster = poster,
+        episode = episode,
+        seasonIndex = seasonIndex,
+        season = season,
+        data = data,
+        apiName = apiName,
+        id = id,
+        index = index,
+        position = posDur?.position ?: 0,
+        duration = posDur?.duration ?: 0,
+        score = rating,
+        description = description,
+        isFiller = isFiller,
+        tvType = tvType,
+        parentId = parentId,
+        videoWatchState = videoWatchState,
+        totalEpisodeIndex = totalEpisodeIndex,
+        airDate = airDate,
+        runTime = runTime,
+        seasonData = seasonData
     )
 }
 
@@ -114,6 +129,7 @@ fun ResultEpisode.getWatchProgress(): Float {
 
 object ResultFragment {
     private const val URL_BUNDLE = "url"
+    private const val NAME_BUNDLE = "name"
     private const val API_NAME_BUNDLE = "apiName"
     private const val SEASON_BUNDLE = "season"
     private const val EPISODE_BUNDLE = "episode"
@@ -127,6 +143,7 @@ object ResultFragment {
         return Bundle().apply {
             putString(URL_BUNDLE, card.url)
             putString(API_NAME_BUNDLE, card.apiName)
+            putString(NAME_BUNDLE, card.name)
             if (card is DataStoreHelper.ResumeWatchingResult) {
                 if (card.season != null)
                     putInt(SEASON_BUNDLE, card.season)
@@ -145,12 +162,14 @@ object ResultFragment {
     fun newInstance(
         url: String,
         apiName: String,
+        name: String,
         startAction: Int = 0,
         startValue: Int = 0
     ): Bundle {
         return Bundle().apply {
             putString(URL_BUNDLE, url)
             putString(API_NAME_BUNDLE, apiName)
+            putString(NAME_BUNDLE, name)
             putInt(START_ACTION_BUNDLE, startAction)
             putInt(START_VALUE_BUNDLE, startValue)
             putBoolean(RESTART_BUNDLE, true)
@@ -158,9 +177,10 @@ object ResultFragment {
     }
 
     fun updateUI(id: Int? = null) {
-       // updateUIListener?.invoke()
+        // updateUIListener?.invoke()
         updateUIEvent.invoke(id)
     }
+
     val updateUIEvent = Event<Int?>()
 
     //private var updateUIListener: (() -> Unit)? = null
@@ -188,10 +208,7 @@ object ResultFragment {
      override fun onResume() {
          afterPluginsLoadedEvent += ::reloadViewModel
          super.onResume()
-         activity?.let {
-             it.window?.navigationBarColor =
-                 it.colorFromAttribute(R.attr.primaryBlackBackground)
-         }
+         activity?.setNavigationBarColorCompat(R.attr.primaryBlackBackground)
      }
 
      override fun onDestroy() {
@@ -208,11 +225,12 @@ object ResultFragment {
     data class StoredData(
         val url: String,
         val apiName: String,
+        val name: String,
         val showFillers: Boolean,
         val dubStatus: DubStatus,
         val start: AutoResume?,
         val playerAction: Int,
-        val restart : Boolean,
+        val restart: Boolean,
     )
 
     fun Fragment.getStoredData(): StoredData? {
@@ -220,6 +238,7 @@ object ResultFragment {
         val settingsManager = PreferenceManager.getDefaultSharedPreferences(context)
         val url = arguments?.getString(URL_BUNDLE) ?: return null
         val apiName = arguments?.getString(API_NAME_BUNDLE) ?: return null
+        val name = arguments?.getString(NAME_BUNDLE) ?: return null
         val showFillers =
             settingsManager.getBoolean(context.getString(R.string.show_fillers_key), false)
         val dubStatus = if (context.getApiDubstatusSettings()
@@ -248,7 +267,7 @@ object ResultFragment {
                 season = resumeSeason
             )
         }
-        return StoredData(url, apiName, showFillers, dubStatus, start, playerAction, restart)
+        return StoredData(url, apiName, name, showFillers, dubStatus, start, playerAction, restart)
     }
 
     /*private fun reloadViewModel(forceReload: Boolean) {
@@ -283,8 +302,6 @@ object ResultFragment {
         context?.updateHasTrailers()
         activity?.loadCache()
 
-        //activity?.fixPaddingStatusbar(result_barstatus)
-
         /* val backParameter = result_back.layoutParams as FrameLayout.LayoutParams
          backParameter.setMargins(
              backParameter.leftMargin,
@@ -293,8 +310,6 @@ object ResultFragment {
              backParameter.bottomMargin
          )
          result_back.layoutParams = backParameter*/
-
-        // activity?.fixPaddingStatusbar(result_toolbar)
 
         val storedData = (activity ?: context)?.let {
             getStoredData(it)

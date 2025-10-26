@@ -1,17 +1,9 @@
 package com.lagradost.cloudstream3.utils
 
 import android.content.Context
-import android.content.DialogInterface
-import android.text.Editable
-import android.view.LayoutInflater
-import androidx.appcompat.app.AlertDialog
-import androidx.core.view.isGone
-import androidx.core.widget.doOnTextChanged
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.APIHolder.filterProviderByPreferredMedia
 import com.lagradost.cloudstream3.APIHolder.unixTimeMS
+import com.lagradost.cloudstream3.AcraApplication
 import com.lagradost.cloudstream3.AcraApplication.Companion.context
 import com.lagradost.cloudstream3.AcraApplication.Companion.getKey
 import com.lagradost.cloudstream3.AcraApplication.Companion.getKeys
@@ -19,21 +11,24 @@ import com.lagradost.cloudstream3.AcraApplication.Companion.removeKey
 import com.lagradost.cloudstream3.AcraApplication.Companion.removeKeys
 import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
 import com.lagradost.cloudstream3.CommonActivity.showToast
-import com.lagradost.cloudstream3.databinding.WhoIsWatchingAccountEditBinding
-import com.lagradost.cloudstream3.databinding.WhoIsWatchingBinding
-import com.lagradost.cloudstream3.mvvm.logError
+import com.lagradost.cloudstream3.DubStatus
+import com.lagradost.cloudstream3.EpisodeResponse
+import com.lagradost.cloudstream3.MainActivity
+import com.lagradost.cloudstream3.R
+import com.lagradost.cloudstream3.Score
+import com.lagradost.cloudstream3.SearchQuality
+import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.syncproviders.AccountManager
 import com.lagradost.cloudstream3.syncproviders.SyncAPI
 import com.lagradost.cloudstream3.ui.WatchType
-import com.lagradost.cloudstream3.ui.WhoIsWatchingAdapter
 import com.lagradost.cloudstream3.ui.library.ListSorting
-import com.lagradost.cloudstream3.ui.result.FOCUS_SELF
-import com.lagradost.cloudstream3.ui.result.UiImage
+import com.lagradost.cloudstream3.ui.result.EpisodeSortType
 import com.lagradost.cloudstream3.ui.result.VideoWatchState
-import com.lagradost.cloudstream3.ui.result.setImage
-import com.lagradost.cloudstream3.ui.result.setLinearListLayout
-import com.lagradost.cloudstream3.utils.AppUtils.setDefaultFocus
-import com.lagradost.cloudstream3.utils.UIHelper.dismissSafe
+import com.lagradost.cloudstream3.utils.AppContextUtils.filterProviderByPreferredMedia
+import java.util.Calendar
+import java.util.Date
+import java.util.GregorianCalendar
 import kotlin.reflect.KClass
 import kotlin.reflect.KProperty
 
@@ -42,13 +37,15 @@ const val VIDEO_WATCH_STATE = "video_watch_state"
 const val RESULT_WATCH_STATE = "result_watch_state"
 const val RESULT_WATCH_STATE_DATA = "result_watch_state_data"
 const val RESULT_SUBSCRIBED_STATE_DATA = "result_subscribed_state_data"
+const val RESULT_FAVORITES_STATE_DATA = "result_favorites_state_data"
 const val RESULT_RESUME_WATCHING = "result_resume_watching_2" // changed due to id changes
 const val RESULT_RESUME_WATCHING_OLD = "result_resume_watching"
 const val RESULT_RESUME_WATCHING_HAS_MIGRATED = "result_resume_watching_migrated"
 const val RESULT_EPISODE = "result_episode"
 const val RESULT_SEASON = "result_season"
 const val RESULT_DUB = "result_dub"
-
+const val KEY_RESULT_SORT = "result_sort"
+const val USER_PINNED_PROVIDERS = "user_pinned_providers" //key for pinned user set
 
 class UserPreferenceDelegate<T : Any>(
     private val key: String, private val default: T //, private val klass: KClass<T>
@@ -73,7 +70,7 @@ class UserPreferenceDelegate<T : Any>(
 
 object DataStoreHelper {
     // be aware, don't change the index of these as Account uses the index for the art
-    private val profileImages = arrayOf(
+    val profileImages = arrayOf(
         R.drawable.profile_bg_dark_blue,
         R.drawable.profile_bg_blue,
         R.drawable.profile_bg_orange,
@@ -83,48 +80,68 @@ object DataStoreHelper {
         R.drawable.profile_bg_teal
     )
 
-    private var searchPreferenceProvidersStrings : List<String> by UserPreferenceDelegate(
+    private var searchPreferenceProvidersStrings: List<String> by UserPreferenceDelegate(
         /** java moment right here, as listOf()::class.java != List(0) { "" }::class.java */
         "search_pref_providers", List(0) { "" }
     )
 
-    private fun serializeTv(data : List<TvType>) : List<String> = data.map { it.name }
+    private fun serializeTv(data: List<TvType>): List<String> = data.map { it.name }
 
-    private fun deserializeTv(data : List<String>) : List<TvType> {
+    private fun deserializeTv(data: List<String>): List<TvType> {
         return data.mapNotNull { listName ->
             TvType.values().firstOrNull { it.name == listName }
         }
     }
 
-    var searchPreferenceProviders : List<String>
+    var searchPreferenceProviders: List<String>
         get() {
             val ret = searchPreferenceProvidersStrings
             return ret.ifEmpty {
                 context?.filterProviderByPreferredMedia()?.map { it.name } ?: emptyList()
             }
-        } set(value) {
+        }
+        set(value) {
             searchPreferenceProvidersStrings = value
         }
 
-    private var searchPreferenceTagsStrings : List<String> by UserPreferenceDelegate("search_pref_tags", listOf(TvType.Movie, TvType.TvSeries).map { it.name })
-    var searchPreferenceTags : List<TvType>
+    private var searchPreferenceTagsStrings: List<String> by UserPreferenceDelegate(
+        "search_pref_tags",
+        listOf(TvType.Movie, TvType.TvSeries).map { it.name })
+    var searchPreferenceTags: List<TvType>
         get() = deserializeTv(searchPreferenceTagsStrings)
         set(value) {
             searchPreferenceTagsStrings = serializeTv(value)
         }
 
 
-    private var homePreferenceStrings : List<String> by UserPreferenceDelegate("home_pref_homepage", listOf(TvType.Movie, TvType.TvSeries).map { it.name })
-    var homePreference : List<TvType>
+    private var homePreferenceStrings: List<String> by UserPreferenceDelegate(
+        "home_pref_homepage",
+        listOf(TvType.Movie, TvType.TvSeries).map { it.name })
+    var homePreference: List<TvType>
         get() = deserializeTv(homePreferenceStrings)
         set(value) {
             homePreferenceStrings = serializeTv(value)
         }
 
-    var homeBookmarkedList : IntArray by UserPreferenceDelegate("home_bookmarked_last_list", IntArray(0))
-    var playBackSpeed : Float by UserPreferenceDelegate("playback_speed", 1.0f)
-    var resizeMode : Int by UserPreferenceDelegate("resize_mode", 0)
-    var librarySortingMode : Int by UserPreferenceDelegate("library_sorting_mode", ListSorting.AlphabeticalA.ordinal)
+    var homeBookmarkedList: IntArray by UserPreferenceDelegate(
+        "home_bookmarked_last_list",
+        IntArray(0)
+    )
+    var playBackSpeed: Float by UserPreferenceDelegate("playback_speed", 1.0f)
+    var resizeMode: Int by UserPreferenceDelegate("resize_mode", 0)
+    var librarySortingMode: Int by UserPreferenceDelegate(
+        "library_sorting_mode",
+        ListSorting.AlphabeticalA.ordinal
+    )
+    private var _resultsSortingMode: Int by UserPreferenceDelegate(
+        "results_sorting_mode",
+        EpisodeSortType.NUMBER_ASC.ordinal
+    )
+    var resultsSortingMode: EpisodeSortType
+        get() = EpisodeSortType.entries.getOrNull(_resultsSortingMode) ?: EpisodeSortType.NUMBER_ASC
+        set(value) {
+            _resultsSortingMode = value.ordinal
+        }
 
     data class Account(
         @JsonProperty("keyIndex")
@@ -135,15 +152,17 @@ object DataStoreHelper {
         val customImage: String? = null,
         @JsonProperty("defaultImageIndex")
         val defaultImageIndex: Int,
+        @JsonProperty("lockPin")
+        val lockPin: String? = null,
     ) {
-        val image: UiImage
-            get() = customImage?.let { UiImage.Image(it) } ?: UiImage.Drawable(
-                profileImages.getOrNull(defaultImageIndex) ?: profileImages.first()
-            )
+        val image
+            get() = customImage?.let { UiImage.Image(it) } ?: profileImages.getOrNull(
+                defaultImageIndex
+            )?.let { UiImage.Drawable(it) } ?: UiImage.Drawable(profileImages.first())
     }
 
     const val TAG = "data_store_helper"
-    private var accounts by PreferenceDelegate("$TAG/account", arrayOf<Account>())
+    var accounts by PreferenceDelegate("$TAG/account", arrayOf<Account>())
     var selectedKeyIndex by PreferenceDelegate("$TAG/account_key_index", 0)
     val currentAccount: String get() = selectedKeyIndex.toString()
 
@@ -162,106 +181,22 @@ object DataStoreHelper {
             }
         }
 
-    private fun setAccount(account: Account, refreshHomePage: Boolean) {
+    fun setAccount(account: Account) {
+        val homepage = currentHomePage
+
         selectedKeyIndex = account.keyIndex
-        showToast(account.name)
+        AccountManager.updateAccountIds()
+        showToast(context?.getString(R.string.logged_account, account.name) ?: account.name)
         MainActivity.bookmarksUpdatedEvent(true)
-        if (refreshHomePage) {
+        MainActivity.reloadLibraryEvent(true)
+        val oldAccount = accounts.find { it.keyIndex == account.keyIndex }
+        if (oldAccount != null && currentHomePage != homepage) {
+            // This is not a new account, and the homepage has changed, reload it
             MainActivity.reloadHomeEvent(true)
         }
     }
 
-    private fun editAccount(context: Context, account: Account, isNewAccount: Boolean) {
-        val binding =
-            WhoIsWatchingAccountEditBinding.inflate(LayoutInflater.from(context), null, false)
-        val builder =
-            AlertDialog.Builder(context, R.style.AlertDialogCustom)
-                .setView(binding.root)
-
-        var currentEditAccount = account
-        val dialog = builder.show()
-        binding.accountName.text = Editable.Factory.getInstance()?.newEditable(account.name)
-        binding.accountName.doOnTextChanged { text, _, _, _ ->
-            currentEditAccount = currentEditAccount.copy(name = text?.toString() ?: "")
-        }
-
-        binding.deleteBtt.isGone = isNewAccount
-        binding.deleteBtt.setOnClickListener {
-            val dialogClickListener =
-                DialogInterface.OnClickListener { _, which ->
-                    when (which) {
-                        DialogInterface.BUTTON_POSITIVE -> {
-                            // remove all keys as well as the account, note that default wont get
-                            // deleted from currentAccounts, as it is not part of "accounts",
-                            // but the watch keys will
-                            removeKeys(account.keyIndex.toString())
-                            val currentAccounts = accounts.toMutableList()
-                            currentAccounts.removeIf { it.keyIndex == account.keyIndex }
-                            accounts = currentAccounts.toTypedArray()
-
-                            // update UI
-                            setAccount(getDefaultAccount(context), true)
-                            dialog?.dismissSafe()
-                        }
-
-                        DialogInterface.BUTTON_NEGATIVE -> {}
-                    }
-                }
-
-            try {
-                AlertDialog.Builder(context).setTitle(R.string.delete).setMessage(
-                    context.getString(R.string.delete_message).format(
-                        currentEditAccount.name
-                    )
-                )
-                    .setPositiveButton(R.string.delete, dialogClickListener)
-                    .setNegativeButton(R.string.cancel, dialogClickListener)
-                    .show().setDefaultFocus()
-            } catch (t: Throwable) {
-                logError(t)
-                // ye you somehow fucked up formatting did you?
-            }
-        }
-
-        binding.cancelBtt.setOnClickListener {
-            dialog?.dismissSafe()
-        }
-
-        binding.profilePic.setImage(account.image)
-        binding.profilePic.setOnClickListener {
-            // rolls the image forwards once
-            currentEditAccount =
-                currentEditAccount.copy(defaultImageIndex = (currentEditAccount.defaultImageIndex + 1) % profileImages.size)
-            binding.profilePic.setImage(currentEditAccount.image)
-        }
-
-        binding.applyBtt.setOnClickListener {
-            val currentAccounts = accounts.toMutableList()
-
-            val overrideIndex =
-                currentAccounts.indexOfFirst { it.keyIndex == currentEditAccount.keyIndex }
-
-            // if an account is found that has the same keyIndex then override that one, if not then append it
-            if (overrideIndex != -1) {
-                currentAccounts[overrideIndex] = currentEditAccount
-            } else {
-                currentAccounts.add(currentEditAccount)
-            }
-
-            // Save the current homepage for new accounts
-            val currentHomePage = DataStoreHelper.currentHomePage
-
-            // set the new default account as well as add the key for the new account
-            setAccount(currentEditAccount, false)
-            DataStoreHelper.currentHomePage = currentHomePage
-
-            accounts = currentAccounts.toTypedArray()
-
-            dialog.dismissSafe()
-        }
-    }
-
-    private fun getDefaultAccount(context: Context): Account {
+    fun getDefaultAccount(context: Context): Account {
         return accounts.let { currentAccounts ->
             currentAccounts.getOrNull(currentAccounts.indexOfFirst { it.keyIndex == 0 }) ?: Account(
                 keyIndex = 0,
@@ -271,68 +206,26 @@ object DataStoreHelper {
         }
     }
 
-    fun showWhoIsWatching(context: Context) {
-        val binding: WhoIsWatchingBinding = WhoIsWatchingBinding.inflate(
-            LayoutInflater.from(context)
-        )
-
-        val showAccount = accounts.toMutableList().apply {
+    fun getAccounts(context: Context): List<Account> {
+        return accounts.toMutableList().apply {
             val item = getDefaultAccount(context)
             remove(item)
             add(0, item)
         }
-
-        val builder =
-            BottomSheetDialog(context)
-        builder.setContentView(binding.root)
-        val accountName = context.getString(R.string.account)
-
-        binding.profilesRecyclerview.setLinearListLayout(
-            isHorizontal = true,
-            nextUp = FOCUS_SELF,
-            nextDown = FOCUS_SELF,
-            nextLeft = FOCUS_SELF,
-            nextRight = FOCUS_SELF
-        )
-        binding.profilesRecyclerview.adapter = WhoIsWatchingAdapter(
-            selectCallBack = { account ->
-                setAccount(account, true)
-                builder.dismissSafe()
-            },
-            addAccountCallback = {
-                val currentAccounts = accounts
-                val remainingImages =
-                    profileImages.toSet() - currentAccounts.filter { it.customImage == null }
-                        .mapNotNull { profileImages.getOrNull(it.defaultImageIndex) }.toSet()
-                val image =
-                    profileImages.indexOf(remainingImages.randomOrNull() ?: profileImages.random())
-                val keyIndex = (currentAccounts.maxOfOrNull { it.keyIndex } ?: 0) + 1
-
-                // create a new dummy account
-                editAccount(
-                    context,
-                    Account(
-                        keyIndex = keyIndex,
-                        name = "$accountName $keyIndex",
-                        customImage = null,
-                        defaultImageIndex = image
-                    ), isNewAccount = true
-                )
-                builder.dismissSafe()
-            },
-            editCallBack = { account ->
-                editAccount(
-                    context, account, isNewAccount = false
-                )
-                builder.dismissSafe()
-            }
-        ).apply {
-            submitList(showAccount)
-        }
-
-        builder.show()
     }
 
+    /** Gets the current selected account (or default), may return null if context is null and the user is using the default account */
+    fun getCurrentAccount(): Account? {
+        return (context?.let {
+            getAccounts(it)
+        } ?: accounts.toList()).firstNotNullOfOrNull { account ->
+            if (account.keyIndex == selectedKeyIndex) {
+                account
+            } else {
+                null
+            }
+        }
+    }
 
     data class PosDur(
         @JsonProperty("position") val position: Long,
@@ -348,23 +241,76 @@ object DataStoreHelper {
         return this
     }
 
+    fun Int.toYear(): Date =
+        GregorianCalendar.getInstance().also { it.set(Calendar.YEAR, this) }.time
+
     /**
      * Used to display notifications on new episodes and posters in library.
      **/
-    data class SubscribedData(
+    abstract class LibrarySearchResponse(
         @JsonProperty("id") override var id: Int?,
-        @JsonProperty("subscribedTime") val bookmarkedTime: Long,
-        @JsonProperty("latestUpdatedTime") val latestUpdatedTime: Long,
-        @JsonProperty("lastSeenEpisodeCount") val lastSeenEpisodeCount: Map<DubStatus, Int?>,
+        @JsonProperty("latestUpdatedTime") open val latestUpdatedTime: Long,
         @JsonProperty("name") override val name: String,
         @JsonProperty("url") override val url: String,
         @JsonProperty("apiName") override val apiName: String,
-        @JsonProperty("type") override var type: TvType? = null,
+        @JsonProperty("type") override var type: TvType?,
         @JsonProperty("posterUrl") override var posterUrl: String?,
-        @JsonProperty("year") val year: Int?,
-        @JsonProperty("quality") override var quality: SearchQuality? = null,
-        @JsonProperty("posterHeaders") override var posterHeaders: Map<String, String>? = null,
+        @JsonProperty("year") open val year: Int?,
+        @JsonProperty("syncData") open val syncData: Map<String, String>?,
+        @JsonProperty("quality") override var quality: SearchQuality?,
+        @JsonProperty("posterHeaders") override var posterHeaders: Map<String, String>?,
+        @JsonProperty("plot") open val plot: String? = null,
+        @JsonProperty("score") override var score: Score? = null,
+        @JsonProperty("tags") open val tags: List<String>? = null,
     ) : SearchResponse {
+        @JsonProperty("rating", access = JsonProperty.Access.WRITE_ONLY)
+        @Deprecated(
+            "`rating` is the old scoring system, use score instead",
+            replaceWith = ReplaceWith("score"),
+            level = DeprecationLevel.ERROR
+        )
+        var rating: Int? = null
+            set(value) {
+                if (value != null) {
+                    @Suppress("DEPRECATION_ERROR")
+                    score = Score.fromOld(value)
+                }
+            }
+    }
+
+    data class SubscribedData(
+        @JsonProperty("subscribedTime") val subscribedTime: Long,
+        @JsonProperty("lastSeenEpisodeCount") val lastSeenEpisodeCount: Map<DubStatus, Int?>,
+        override var id: Int?,
+        override val latestUpdatedTime: Long,
+        override val name: String,
+        override val url: String,
+        override val apiName: String,
+        override var type: TvType?,
+        override var posterUrl: String?,
+        override val year: Int?,
+        override val syncData: Map<String, String>? = null,
+        override var quality: SearchQuality? = null,
+        override var posterHeaders: Map<String, String>? = null,
+        override val plot: String? = null,
+        override var score: Score? = null,
+        override val tags: List<String>? = null,
+    ) : LibrarySearchResponse(
+        id,
+        latestUpdatedTime,
+        name,
+        url,
+        apiName,
+        type,
+        posterUrl,
+        year,
+        syncData,
+        quality,
+        posterHeaders,
+        plot,
+        score,
+        tags
+    ) {
         fun toLibraryItem(): SyncAPI.LibraryItem? {
             return SyncAPI.LibraryItem(
                 name,
@@ -374,24 +320,50 @@ object DataStoreHelper {
                 null,
                 null,
                 latestUpdatedTime,
-                apiName, type, posterUrl, posterHeaders, quality, this.id
+                apiName,
+                type,
+                posterUrl,
+                posterHeaders,
+                quality,
+                year?.toYear(),
+                this.id,
+                plot = this.plot,
+                score = this.score,
+                tags = this.tags
             )
         }
     }
 
     data class BookmarkedData(
-        @JsonProperty("id") override var id: Int?,
         @JsonProperty("bookmarkedTime") val bookmarkedTime: Long,
-        @JsonProperty("latestUpdatedTime") val latestUpdatedTime: Long,
-        @JsonProperty("name") override val name: String,
-        @JsonProperty("url") override val url: String,
-        @JsonProperty("apiName") override val apiName: String,
-        @JsonProperty("type") override var type: TvType? = null,
-        @JsonProperty("posterUrl") override var posterUrl: String?,
-        @JsonProperty("year") val year: Int?,
-        @JsonProperty("quality") override var quality: SearchQuality? = null,
-        @JsonProperty("posterHeaders") override var posterHeaders: Map<String, String>? = null,
-    ) : SearchResponse {
+        override var id: Int?,
+        override val latestUpdatedTime: Long,
+        override val name: String,
+        override val url: String,
+        override val apiName: String,
+        override var type: TvType?,
+        override var posterUrl: String?,
+        override val year: Int?,
+        override val syncData: Map<String, String>? = null,
+        override var quality: SearchQuality? = null,
+        override var posterHeaders: Map<String, String>? = null,
+        override val plot: String? = null,
+        override var score: Score? = null,
+        override val tags: List<String>? = null,
+    ) : LibrarySearchResponse(
+        id,
+        latestUpdatedTime,
+        name,
+        url,
+        apiName,
+        type,
+        posterUrl,
+        year,
+        syncData,
+        quality,
+        posterHeaders,
+        plot
+    ) {
         fun toLibraryItem(id: String): SyncAPI.LibraryItem {
             return SyncAPI.LibraryItem(
                 name,
@@ -401,7 +373,69 @@ object DataStoreHelper {
                 null,
                 null,
                 latestUpdatedTime,
-                apiName, type, posterUrl, posterHeaders, quality, this.id
+                apiName,
+                type,
+                posterUrl,
+                posterHeaders,
+                quality,
+                year?.toYear(),
+                this.id,
+                plot = this.plot,
+                score = this.score,
+                tags = this.tags
+            )
+        }
+    }
+
+    data class FavoritesData(
+        @JsonProperty("favoritesTime") val favoritesTime: Long,
+        override var id: Int?,
+        override val latestUpdatedTime: Long,
+        override val name: String,
+        override val url: String,
+        override val apiName: String,
+        override var type: TvType?,
+        override var posterUrl: String?,
+        override val year: Int?,
+        override val syncData: Map<String, String>? = null,
+        override var quality: SearchQuality? = null,
+        override var posterHeaders: Map<String, String>? = null,
+        override val plot: String? = null,
+        override var score: Score? = null,
+        override val tags: List<String>? = null,
+    ) : LibrarySearchResponse(
+        id,
+        latestUpdatedTime,
+        name,
+        url,
+        apiName,
+        type,
+        posterUrl,
+        year,
+        syncData,
+        quality,
+        posterHeaders,
+        plot
+    ) {
+        fun toLibraryItem(): SyncAPI.LibraryItem? {
+            return SyncAPI.LibraryItem(
+                name,
+                url,
+                id?.toString() ?: return null,
+                null,
+                null,
+                null,
+                latestUpdatedTime,
+                apiName,
+                type,
+                posterUrl,
+                posterHeaders,
+                quality,
+                year?.toYear(),
+                this.id,
+                plot = this.plot,
+                score = this.score,
+                tags = this.tags
             )
         }
     }
@@ -420,6 +454,7 @@ object DataStoreHelper {
         @JsonProperty("isFromDownload") val isFromDownload: Boolean,
         @JsonProperty("quality") override var quality: SearchQuality? = null,
         @JsonProperty("posterHeaders") override var posterHeaders: Map<String, String>? = null,
+        @JsonProperty("score") override var score: Score? = null,
     ) : SearchResponse
 
     /**
@@ -438,15 +473,9 @@ object DataStoreHelper {
         removeKeys(folder)
     }
 
-    fun deleteAllBookmarkedData() {
-        val folder1 = "$currentAccount/$RESULT_WATCH_STATE"
-        val folder2 = "$currentAccount/$RESULT_WATCH_STATE_DATA"
-        removeKeys(folder1)
-        removeKeys(folder2)
-    }
-
     fun deleteBookmarkedData(id: Int?) {
         if (id == null) return
+        AccountManager.localListApi.requireLibraryRefresh = true
         removeKey("$currentAccount/$RESULT_WATCH_STATE", id.toString())
         removeKey("$currentAccount/$RESULT_WATCH_STATE_DATA", id.toString())
     }
@@ -544,6 +573,12 @@ object DataStoreHelper {
         return getKey("$currentAccount/$RESULT_WATCH_STATE_DATA", id.toString())
     }
 
+    fun getAllBookmarkedData(): List<BookmarkedData> {
+        return getKeys("$currentAccount/$RESULT_WATCH_STATE_DATA")?.mapNotNull {
+            getKey(it)
+        } ?: emptyList()
+    }
+
     fun getAllSubscriptions(): List<SubscribedData> {
         return getKeys("$currentAccount/$RESULT_SUBSCRIBED_STATE_DATA")?.mapNotNull {
             getKey(it)
@@ -577,6 +612,29 @@ object DataStoreHelper {
     fun getSubscribedData(id: Int?): SubscribedData? {
         if (id == null) return null
         return getKey("$currentAccount/$RESULT_SUBSCRIBED_STATE_DATA", id.toString())
+    }
+
+    fun getAllFavorites(): List<FavoritesData> {
+        return getKeys("$currentAccount/$RESULT_FAVORITES_STATE_DATA")?.mapNotNull {
+            getKey(it)
+        } ?: emptyList()
+    }
+
+    fun removeFavoritesData(id: Int?) {
+        if (id == null) return
+        AccountManager.localListApi.requireLibraryRefresh = true
+        removeKey("$currentAccount/$RESULT_FAVORITES_STATE_DATA", id.toString())
+    }
+
+    fun setFavoritesData(id: Int?, data: FavoritesData) {
+        if (id == null) return
+        setKey("$currentAccount/$RESULT_FAVORITES_STATE_DATA", id.toString(), data)
+        AccountManager.localListApi.requireLibraryRefresh = true
+    }
+
+    fun getFavoritesData(id: Int?): FavoritesData? {
+        if (id == null) return null
+        return getKey("$currentAccount/$RESULT_FAVORITES_STATE_DATA", id.toString())
     }
 
     fun setViewPos(id: Int?, pos: Long, dur: Long) {
@@ -659,4 +717,8 @@ object DataStoreHelper {
             getKey("${idPrefix}_sync", id.toString())
         }
     }
+   var pinnedProviders:Array<String>
+        get() = getKey(USER_PINNED_PROVIDERS) ?: emptyArray<String>()
+        set(value) = setKey(USER_PINNED_PROVIDERS, value)
+
 }

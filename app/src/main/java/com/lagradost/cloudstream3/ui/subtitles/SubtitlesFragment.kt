@@ -6,6 +6,10 @@ import android.content.res.Resources
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
+import android.text.Layout
+import android.text.Spannable
+import android.text.SpannableString
+import android.text.style.StyleSpan
 import android.util.DisplayMetrics
 import android.util.TypedValue
 import android.view.LayoutInflater
@@ -14,12 +18,16 @@ import android.view.ViewGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.annotation.FontRes
+import androidx.annotation.OptIn
+import androidx.annotation.Px
 import androidx.core.content.res.ResourcesCompat
-import androidx.fragment.app.Fragment
+import androidx.fragment.app.DialogFragment
+import androidx.media3.common.text.Cue
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.CaptionStyleCompat
+import androidx.media3.ui.SubtitleView
 import androidx.preference.PreferenceManager
 import com.fasterxml.jackson.annotation.JsonProperty
-import androidx.media3.common.text.Cue
-import androidx.media3.ui.CaptionStyleCompat
 import com.jaredrummler.android.colorpicker.ColorPickerDialog
 import com.lagradost.cloudstream3.AcraApplication.Companion.getKey
 import com.lagradost.cloudstream3.AcraApplication.Companion.setKey
@@ -28,23 +36,31 @@ import com.lagradost.cloudstream3.CommonActivity.onDialogDismissedEvent
 import com.lagradost.cloudstream3.CommonActivity.showToast
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.databinding.SubtitleSettingsBinding
-import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.isTrueTvSettings
+import com.lagradost.cloudstream3.ui.player.CustomDecoder
+import com.lagradost.cloudstream3.ui.player.CustomDecoder.Companion.setSubtitleAlignment
+import com.lagradost.cloudstream3.ui.player.OutlineSpan
+import com.lagradost.cloudstream3.ui.player.RoundedBackgroundColorSpan
+import com.lagradost.cloudstream3.ui.settings.Globals.EMULATOR
+import com.lagradost.cloudstream3.ui.settings.Globals.TV
+import com.lagradost.cloudstream3.ui.settings.Globals.isLandscape
+import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
 import com.lagradost.cloudstream3.utils.DataStore.setKey
 import com.lagradost.cloudstream3.utils.Event
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showDialog
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showMultiDialog
-import com.lagradost.cloudstream3.utils.SubtitleHelper
-import com.lagradost.cloudstream3.utils.UIHelper.fixPaddingStatusbar
+import com.lagradost.cloudstream3.utils.SubtitleHelper.languages
+import com.lagradost.cloudstream3.utils.UIHelper.fixSystemBarsPadding
 import com.lagradost.cloudstream3.utils.UIHelper.hideSystemUI
 import com.lagradost.cloudstream3.utils.UIHelper.navigate
 import com.lagradost.cloudstream3.utils.UIHelper.popCurrentPage
+import com.lagradost.cloudstream3.utils.UIHelper.toPx
 import java.io.File
 
 const val SUBTITLE_KEY = "subtitle_settings"
 const val SUBTITLE_AUTO_SELECT_KEY = "subs_auto_select"
 const val SUBTITLE_DOWNLOAD_KEY = "subs_auto_download"
 
-data class SaveCaptionStyle(
+data class SaveCaptionStyle @OptIn(UnstableApi::class) constructor(
     @JsonProperty("foregroundColor") var foregroundColor: Int,
     @JsonProperty("backgroundColor") var backgroundColor: Int,
     @JsonProperty("windowColor") var windowColor: Int,
@@ -57,22 +73,147 @@ data class SaveCaptionStyle(
     @JsonProperty("elevation") var elevation: Int,
     /**in sp**/
     @JsonProperty("fixedTextSize") var fixedTextSize: Float?,
+    @Px
+    @JsonProperty("edgeSize") var edgeSize: Float? = null,
     @JsonProperty("removeCaptions") var removeCaptions: Boolean = false,
     @JsonProperty("removeBloat") var removeBloat: Boolean = true,
     /** Apply caps lock to the text **/
     @JsonProperty("upperCase") var upperCase: Boolean = false,
+    /** Apply bold to the text **/
+    @JsonProperty("bold") var bold: Boolean = false,
+    /** Apply italic to the text **/
+    @JsonProperty("italic") var italic: Boolean = false,
+    /** in px, background radius, aka how round the background (backgroundColor) on each row is **/
+    @JsonProperty("backgroundRadius") var backgroundRadius: Float? = null,
+    /** The SSA_ALIGNMENT */
+    @JsonProperty("alignment") var alignment: Int? = null,
 )
 
 const val DEF_SUBS_ELEVATION = 20
 
-class SubtitlesFragment : Fragment() {
+@OptIn(androidx.media3.common.util.UnstableApi::class)
+class SubtitlesFragment : DialogFragment() {
     companion object {
         val applyStyleEvent = Event<SaveCaptionStyle>()
+        private val captionRegex = Regex("""(-\s?|)[\[({][\S\s]*?[])}]\s*""")
 
-        fun Context.fromSaveToStyle(data: SaveCaptionStyle): CaptionStyleCompat {
+        fun setSubtitleViewStyle(
+            view: SubtitleView?,
+            data: SaveCaptionStyle,
+            applyElevation: Boolean
+        ) {
+            if (view == null) return
+            val ctx = view.context ?: return
+            val style = ctx.fromSaveToStyle(data)
+            view.setStyle(style)
+
+            if (applyElevation) {
+                view.setPadding(
+                    view.paddingLeft, data.elevation.toPx, view.paddingRight, view.paddingBottom
+                )
+            }
+
+            // we default to 25sp, this is needed as RoundedBackgroundColorSpan breaks on override sizes
+            val size = data.fixedTextSize ?: 25.0f
+            view.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, size)
+            view.setBottomPaddingFraction(0.0f)
+            /*if (size != null) {
+                view.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, size)
+            } else {
+                view.setUserDefaultTextSize()
+            }*/
+        }
+
+        fun Cue.Builder.applyStyle(style: SaveCaptionStyle): Cue.Builder {
+            val edgeSize = style.edgeSize
+
+            /*
+            This is old code for only applying on non null
+
+            val fixedFontSize = style.fixedTextSize
+            val absoluteFontSize =
+                fixedFontSize?.let { getPixels(TypedValue.COMPLEX_UNIT_SP, it).toFloat() }
+
+            // 1. apply override size
+            if (absoluteFontSize != null) {
+                setTextSize(absoluteFontSize, Cue.TEXT_SIZE_TYPE_ABSOLUTE)
+            }*/
+
+            // 1. remove any subtitle size set by the subtitle file (like ass)
+            // instead we use the inherit size of the subtitle view
+            setTextSize(Cue.DIMEN_UNSET, Cue.TYPE_UNSET)
+
+            // 2. apply edge
+            text?.let { text ->
+                val customSpan = SpannableString.valueOf(text)
+                if (edgeSize != null) {
+                    customSpan.setSpan(
+                        OutlineSpan(edgeSize), 0, customSpan.length,
+                        Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
+                setText(customSpan)
+            }
+
+            // 3. apply bold + italic
+            text?.let { text ->
+                val customSpan = SpannableString.valueOf(text)
+
+                val typeface = when (style.bold to style.italic) {
+                    (true to true) -> Typeface.BOLD_ITALIC
+                    (true to false) -> Typeface.BOLD
+                    (false to true) -> Typeface.ITALIC
+                    (false to false) -> Typeface.NORMAL
+                    else -> {
+                        Typeface.NORMAL
+                    }
+                }
+                if (typeface != Typeface.NORMAL) {
+                    val styleSpan = StyleSpan(typeface)
+                    customSpan.setSpan(
+                        styleSpan, 0, customSpan.length,
+                        Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
+                setText(customSpan)
+            }
+
+            // 4. apply radius
+            text?.let { text ->
+                val customSpan = SpannableString.valueOf(text)
+                val radius = style.backgroundRadius
+
+                if (radius != null && style.backgroundColor != Color.TRANSPARENT) {
+                    val styleSpan = RoundedBackgroundColorSpan(
+                        style.backgroundColor,
+                        this.textAlignment ?: Layout.Alignment.ALIGN_CENTER,
+                        2.0F + radius * 0.5f,
+                        radius
+                    )
+                    customSpan.setSpan(
+                        styleSpan, 0, customSpan.length,
+                        Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
+                setText(customSpan)
+            }
+
+            // 5. remove captions
+            text?.let { text ->
+                if (style.removeCaptions) {
+                    setText(text.replace(captionRegex, ""))
+                }
+            }
+
+            // 6. set alignment
+            return this.setSubtitleAlignment(style.alignment)
+        }
+
+        private fun Context.fromSaveToStyle(data: SaveCaptionStyle): CaptionStyleCompat {
             return CaptionStyleCompat(
                 data.foregroundColor,
-                data.backgroundColor,
+                // we actually override with a custom span when backgroundRadius != null
+                if (data.backgroundRadius == null) data.backgroundColor else Color.TRANSPARENT,
                 data.windowColor,
                 data.edgeType,
                 data.edgeColor,
@@ -96,6 +237,7 @@ class SubtitlesFragment : Fragment() {
         fun push(activity: Activity?, hide: Boolean = true) {
             activity.navigate(R.id.global_to_navigation_subtitles, Bundle().apply {
                 putBoolean("hide", hide)
+                putBoolean("popFragment", true)
             })
         }
 
@@ -109,22 +251,25 @@ class SubtitlesFragment : Fragment() {
             }
         }
 
+        private var cachedSubtitleStyle: SaveCaptionStyle? = null
+
         fun Context.saveStyle(style: SaveCaptionStyle) {
+            cachedSubtitleStyle = style
             this.setKey(SUBTITLE_KEY, style)
         }
 
         fun getCurrentSavedStyle(): SaveCaptionStyle {
-            return getKey(SUBTITLE_KEY) ?: SaveCaptionStyle(
-                getDefColor(0),
-                getDefColor(2),
-                getDefColor(3),
-                CaptionStyleCompat.EDGE_TYPE_OUTLINE,
-                getDefColor(1),
-                null,
-                null,
-                DEF_SUBS_ELEVATION,
-                null,
-            )
+            return cachedSubtitleStyle ?: (getKey(SUBTITLE_KEY) ?: SaveCaptionStyle(
+                foregroundColor = getDefColor(0),
+                backgroundColor = getDefColor(2),
+                windowColor = getDefColor(3),
+                edgeType = CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                edgeColor = getDefColor(1),
+                typeface = null,
+                typefaceFilePath = null,
+                elevation = DEF_SUBS_ELEVATION,
+                fixedTextSize = null,
+            )).also { cachedSubtitleStyle = it }
         }
 
         private fun Context.getSavedFonts(): List<File> {
@@ -140,20 +285,16 @@ class SubtitlesFragment : Fragment() {
             } ?: listOf()
         }
 
-        private fun Context.getCurrentStyle(): CaptionStyleCompat {
-            return fromSaveToStyle(getCurrentSavedStyle())
-        }
-
         private fun getPixels(unit: Int, size: Float): Int {
             val metrics: DisplayMetrics = Resources.getSystem().displayMetrics
             return TypedValue.applyDimension(unit, size, metrics).toInt()
         }
 
-        fun getDownloadSubsLanguageISO639_1(): List<String> {
+        fun getDownloadSubsLanguageTagIETF(): List<String> {
             return getKey(SUBTITLE_DOWNLOAD_KEY) ?: listOf("en")
         }
 
-        fun getAutoSelectLanguageISO639_1(): String {
+        fun getAutoSelectLanguageTagIETF(): String {
             return getKey(SUBTITLE_AUTO_SELECT_KEY) ?: "en"
         }
     }
@@ -164,7 +305,7 @@ class SubtitlesFragment : Fragment() {
             activity?.hideSystemUI()
     }
 
-    private fun onDialogDismissed(id: Int) {
+    private fun onDialogDismissed(@Suppress("UNUSED_PARAMETER") id: Int) {
         if (hide)
             activity?.hideSystemUI()
     }
@@ -183,17 +324,15 @@ class SubtitlesFragment : Fragment() {
     }
 
     private fun Context.updateState() {
-        binding?.subtitleText?.setStyle(fromSaveToStyle(state))
         val text = getString(R.string.subtitles_example_text)
-        val fixedText = if (state.upperCase) text.uppercase() else text
+        val fixedText = SpannableString.valueOf(if (state.upperCase) text.uppercase() else text)
+        setSubtitleViewStyle(binding?.subtitleText, state, false)
+
         binding?.subtitleText?.setCues(
             listOf(
                 Cue.Builder()
-                    .setTextSize(
-                        getPixels(TypedValue.COMPLEX_UNIT_SP, 25.0f).toFloat(),
-                        Cue.TEXT_SIZE_TYPE_ABSOLUTE
-                    )
                     .setText(fixedText)
+                    .applyStyle(state)
                     .build()
             )
         )
@@ -232,26 +371,42 @@ class SubtitlesFragment : Fragment() {
     private lateinit var state: SaveCaptionStyle
     private var hide: Boolean = true
 
+    var systemBarsAddPadding = isLayout(TV or EMULATOR)
+
     override fun onDestroy() {
         super.onDestroy()
         onColorSelectedEvent -= ::onColorSelected
     }
 
+    override fun onStart() {
+        super.onStart()
+        dialog?.window?.setWindowAnimations(R.style.DialogFullscreenPlayer)
+    }
+
+    override fun getTheme(): Int {
+        return R.style.DialogFullscreenPlayer
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         hide = arguments?.getBoolean("hide") ?: true
+        val popFragment = arguments?.getBoolean("popFragment") ?: false
         onColorSelectedEvent += ::onColorSelected
         onDialogDismissedEvent += ::onDialogDismissed
         binding?.subsImportText?.text = getString(R.string.subs_import_text).format(
             context?.getExternalFilesDir(null)?.absolutePath.toString() + "/Fonts"
         )
 
-        fixPaddingStatusbar(binding?.subsRoot)
+        fixSystemBarsPadding(
+            binding?.subsRoot,
+            padBottom = systemBarsAddPadding || isLandscape(),
+            padLeft = systemBarsAddPadding
+        )
 
         state = getCurrentSavedStyle()
         context?.updateState()
 
-        val isTvTrueSettings = isTrueTvSettings()
+        val isTvTrueSettings = isLayout(TV)
 
         fun View.setFocusableInTv() {
             this.isFocusableInTouchMode = isTvTrueSettings
@@ -289,20 +444,13 @@ class SubtitlesFragment : Fragment() {
 
             subsSubtitleElevation.setFocusableInTv()
             subsSubtitleElevation.setOnClickListener { textView ->
-                val suffix = "dp"
+                // tbh this should not be a dialog if it has so many values
                 val elevationTypes = listOf(
-                    Pair(0, textView.context.getString(R.string.none)),
-                    Pair(10, "10$suffix"),
-                    Pair(20, "20$suffix"),
-                    Pair(30, "30$suffix"),
-                    Pair(40, "40$suffix"),
-                    Pair(50, "50$suffix"),
-                    Pair(60, "60$suffix"),
-                    Pair(70, "70$suffix"),
-                    Pair(80, "80$suffix"),
-                    Pair(90, "90$suffix"),
-                    Pair(100, "100$suffix"),
-                )
+                    0 to textView.context.getString(R.string.none)
+                ) + (1..40).map { x ->
+                    val i = x * 10
+                    i to "${i}dp"
+                }
 
                 //showBottomDialog
                 activity?.showDialog(
@@ -326,29 +474,75 @@ class SubtitlesFragment : Fragment() {
                 return@setOnLongClickListener true
             }
 
+            subsBackgroundRadius.setFocusableInTv()
+            subsBackgroundRadius.setOnClickListener { textView ->
+                // tbh this should not be a dialog if it has so many values
+                val radiusTypes = listOf(
+                    null to textView.context.getString(R.string.none)
+                ) + (1..10).map { x ->
+                    val i = x * 5
+                    i to "${i}px"
+                }
+
+                activity?.showDialog(
+                    radiusTypes.map { it.second },
+                    radiusTypes.map { it.first }.indexOf(state.backgroundRadius?.toInt()),
+                    (textView as TextView).text.toString(),
+                    false,
+                    dismissCallback
+                ) { index ->
+                    state.backgroundRadius = radiusTypes.map { it.first }[index]?.toFloat()
+                    textView.context.updateState()
+                }
+            }
+
+            subsBackgroundRadius.setOnLongClickListener {
+                state.backgroundRadius = null
+                it.context.updateState()
+                showToast(R.string.subs_default_reset_toast, Toast.LENGTH_SHORT)
+                return@setOnLongClickListener true
+            }
+
+            subsSubtitleAlignment.setFocusableInTv()
+            subsSubtitleAlignment.setOnClickListener { textView ->
+                val alignmentTypes = listOf(
+                    null to R.string.automatic,
+                    CustomDecoder.SSA_ALIGNMENT_BOTTOM_LEFT to R.string.bottom_left,
+                    CustomDecoder.SSA_ALIGNMENT_BOTTOM_CENTER to R.string.bottom_center,
+                    CustomDecoder.SSA_ALIGNMENT_BOTTOM_RIGHT to R.string.bottom_right,
+                    CustomDecoder.SSA_ALIGNMENT_MIDDLE_LEFT to R.string.middle_left,
+                    CustomDecoder.SSA_ALIGNMENT_MIDDLE_CENTER to R.string.middle_center,
+                    CustomDecoder.SSA_ALIGNMENT_MIDDLE_RIGHT to R.string.middle_right,
+                    CustomDecoder.SSA_ALIGNMENT_TOP_LEFT to R.string.top_left,
+                    CustomDecoder.SSA_ALIGNMENT_TOP_CENTER to R.string.top_center,
+                    CustomDecoder.SSA_ALIGNMENT_TOP_RIGHT to R.string.top_right,
+                )
+
+                activity?.showDialog(
+                    alignmentTypes.map { textView.context.getString(it.second) },
+                    alignmentTypes.map { it.first }.indexOf(state.alignment),
+                    (textView as TextView).text.toString(),
+                    false,
+                    dismissCallback
+                ) { index ->
+                    state.alignment = alignmentTypes.map { it.first }[index]
+                    textView.context.updateState()
+                }
+            }
+
             subsEdgeType.setFocusableInTv()
             subsEdgeType.setOnClickListener { textView ->
                 val edgeTypes = listOf(
-                    Pair(
-                        CaptionStyleCompat.EDGE_TYPE_NONE,
-                        textView.context.getString(R.string.subtitles_none)
-                    ),
-                    Pair(
-                        CaptionStyleCompat.EDGE_TYPE_OUTLINE,
-                        textView.context.getString(R.string.subtitles_outline)
-                    ),
-                    Pair(
-                        CaptionStyleCompat.EDGE_TYPE_DEPRESSED,
-                        textView.context.getString(R.string.subtitles_depressed)
-                    ),
-                    Pair(
-                        CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW,
-                        textView.context.getString(R.string.subtitles_shadow)
-                    ),
-                    Pair(
-                        CaptionStyleCompat.EDGE_TYPE_RAISED,
-                        textView.context.getString(R.string.subtitles_raised)
-                    ),
+                    CaptionStyleCompat.EDGE_TYPE_NONE to
+                            textView.context.getString(R.string.subtitles_none),
+                    CaptionStyleCompat.EDGE_TYPE_OUTLINE to
+                            textView.context.getString(R.string.subtitles_outline),
+                    CaptionStyleCompat.EDGE_TYPE_DEPRESSED to
+                            textView.context.getString(R.string.subtitles_depressed),
+                    CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW to
+                            textView.context.getString(R.string.subtitles_shadow),
+                    CaptionStyleCompat.EDGE_TYPE_RAISED to
+                            textView.context.getString(R.string.subtitles_raised),
                 )
 
                 //showBottomDialog
@@ -373,42 +567,9 @@ class SubtitlesFragment : Fragment() {
 
             subsFontSize.setFocusableInTv()
             subsFontSize.setOnClickListener { textView ->
-                val suffix = "sp"
                 val fontSizes = listOf(
-                    Pair(null, textView.context.getString(R.string.normal)),
-                    Pair(6f, "6$suffix"),
-                    Pair(7f, "7$suffix"),
-                    Pair(8f, "8$suffix"),
-                    Pair(9f, "9$suffix"),
-                    Pair(10f, "10$suffix"),
-                    Pair(11f, "11$suffix"),
-                    Pair(12f, "12$suffix"),
-                    Pair(13f, "13$suffix"),
-                    Pair(14f, "14$suffix"),
-                    Pair(15f, "15$suffix"),
-                    Pair(16f, "16$suffix"),
-                    Pair(17f, "17$suffix"),
-                    Pair(18f, "18$suffix"),
-                    Pair(19f, "19$suffix"),
-                    Pair(20f, "20$suffix"),
-                    Pair(21f, "21$suffix"),
-                    Pair(22f, "22$suffix"),
-                    Pair(23f, "23$suffix"),
-                    Pair(24f, "24$suffix"),
-                    Pair(25f, "25$suffix"),
-                    Pair(26f, "26$suffix"),
-                    Pair(28f, "28$suffix"),
-                    Pair(30f, "30$suffix"),
-                    Pair(32f, "32$suffix"),
-                    Pair(34f, "34$suffix"),
-                    Pair(36f, "36$suffix"),
-                    Pair(38f, "38$suffix"),
-                    Pair(40f, "40$suffix"),
-                    Pair(42f, "42$suffix"),
-                    Pair(44f, "44$suffix"),
-                    Pair(48f, "48$suffix"),
-                    Pair(60f, "60$suffix"),
-                )
+                    null to textView.context.getString(R.string.normal),
+                ) + (6..60).map { i -> i.toFloat() to "${i}sp" }
 
                 //showBottomDialog
                 activity?.showDialog(
@@ -419,7 +580,26 @@ class SubtitlesFragment : Fragment() {
                     dismissCallback
                 ) { index ->
                     state.fixedTextSize = fontSizes.map { it.first }[index]
-                    //textView.context.updateState() // font size not changed
+                    textView.context.updateState()
+                }
+            }
+
+            subsEdgeSize.setFocusableInTv()
+            subsEdgeSize.setOnClickListener { textView ->
+                val fontSizes = listOf(
+                    null to textView.context.getString(R.string.normal),
+                ) + (1..60).map { i -> i.toFloat() to "${i}px" }
+
+                //showBottomDialog
+                activity?.showDialog(
+                    fontSizes.map { it.second },
+                    fontSizes.map { it.first }.indexOf(state.edgeSize),
+                    (textView as TextView).text.toString(),
+                    false,
+                    dismissCallback
+                ) { index ->
+                    state.edgeSize = fontSizes.map { it.first }[index]
+                    textView.context.updateState()
                 }
             }
 
@@ -438,9 +618,28 @@ class SubtitlesFragment : Fragment() {
                 state.removeCaptions = b
             }
 
+            subtitlesBold.isChecked = state.bold
+            subtitlesBold.setOnCheckedChangeListener { _, b ->
+                state.bold = b
+                context?.updateState()
+            }
+
+            subtitlesItalic.isChecked = state.italic
+            subtitlesItalic.setOnCheckedChangeListener { _, b ->
+                state.italic = b
+                context?.updateState()
+            }
+
             subsFontSize.setOnLongClickListener { _ ->
                 state.fixedTextSize = null
-                //textView.context.updateState() // font size not changed
+                context?.updateState()
+                showToast(activity, R.string.subs_default_reset_toast, Toast.LENGTH_SHORT)
+                return@setOnLongClickListener true
+            }
+
+            subsEdgeSize.setOnLongClickListener { _ ->
+                state.edgeSize = null
+                context?.updateState()
                 showToast(activity, R.string.subs_default_reset_toast, Toast.LENGTH_SHORT)
                 return@setOnLongClickListener true
             }
@@ -464,21 +663,21 @@ class SubtitlesFragment : Fragment() {
             subsFont.setFocusableInTv()
             subsFont.setOnClickListener { textView ->
                 val fontTypes = listOf(
-                    Pair(null, textView.context.getString(R.string.normal)),
-                    Pair(R.font.trebuchet_ms, "Trebuchet MS"),
-                    Pair(R.font.netflix_sans, "Netflix Sans"),
-                    Pair(R.font.google_sans, "Google Sans"),
-                    Pair(R.font.open_sans, "Open Sans"),
-                    Pair(R.font.futura, "Futura"),
-                    Pair(R.font.consola, "Consola"),
-                    Pair(R.font.gotham, "Gotham"),
-                    Pair(R.font.lucida_grande, "Lucida Grande"),
-                    Pair(R.font.stix_general, "STIX General"),
-                    Pair(R.font.times_new_roman, "Times New Roman"),
-                    Pair(R.font.verdana, "Verdana"),
-                    Pair(R.font.ubuntu_regular, "Ubuntu"),
-                    Pair(R.font.comic_sans, "Comic Sans"),
-                    Pair(R.font.poppins_regular, "Poppins"),
+                    null to textView.context.getString(R.string.normal),
+                    R.font.trebuchet_ms to "Trebuchet MS",
+                    R.font.netflix_sans to "Netflix Sans",
+                    R.font.google_sans to "Google Sans",
+                    R.font.open_sans to "Open Sans",
+                    R.font.futura to "Futura",
+                    R.font.consola to "Consola",
+                    R.font.gotham to "Gotham",
+                    R.font.lucida_grande to "Lucida Grande",
+                    R.font.stix_general to "STIX General",
+                    R.font.times_new_roman to "Times New Roman",
+                    R.font.verdana to "Verdana",
+                    R.font.ubuntu_regular to "Ubuntu",
+                    R.font.comic_sans to "Comic Sans",
+                    R.font.poppins_regular to "Poppins",
                 )
                 val savedFontTypes = textView.context.getSavedFonts()
 
@@ -519,28 +718,29 @@ class SubtitlesFragment : Fragment() {
 
             subsAutoSelectLanguage.setFocusableInTv()
             subsAutoSelectLanguage.setOnClickListener { textView ->
-                val langMap = arrayListOf(
-                    SubtitleHelper.Language639(
-                        textView.context.getString(R.string.none),
-                        textView.context.getString(R.string.none),
-                        "",
-                        "",
-                        "",
-                        "",
-                        ""
-                    ),
-                )
-                langMap.addAll(SubtitleHelper.languages)
+                val languagesTagName =
+                    listOf(
+                        Pair(
+                            textView.context.getString(R.string.none),
+                            textView.context.getString(R.string.none)
+                        )
+                    ) +
+                            languages
+                                .map { Pair(it.IETF_tag, it.nameNextToFlagEmoji()) }
+                                .sortedBy {
+                                    it.second.substringAfter("\u00a0").lowercase()
+                                } // name ignoring flag emoji
 
-                val lang639_1 = langMap.map { it.ISO_639_1 }
+                val (langTagsIETF, langNames) = languagesTagName.unzip()
+
                 activity?.showDialog(
-                    langMap.map { it.languageName },
-                    lang639_1.indexOf(getAutoSelectLanguageISO639_1()),
+                    langNames,
+                    langTagsIETF.indexOf(getAutoSelectLanguageTagIETF()),
                     (textView as TextView).text.toString(),
                     true,
                     dismissCallback
                 ) { index ->
-                    setKey(SUBTITLE_AUTO_SELECT_KEY, lang639_1[index])
+                    setKey(SUBTITLE_AUTO_SELECT_KEY, langTagsIETF[index])
                 }
             }
 
@@ -552,18 +752,26 @@ class SubtitlesFragment : Fragment() {
 
             subsDownloadLanguages.setFocusableInTv()
             subsDownloadLanguages.setOnClickListener { textView ->
-                val langMap = SubtitleHelper.languages
-                val lang639_1 = langMap.map { it.ISO_639_1 }
-                val keys = getDownloadSubsLanguageISO639_1()
-                val keyMap = keys.map { lang639_1.indexOf(it) }.filter { it >= 0 }
+                val languagesTagName =
+                    languages
+                        .map { Pair(it.IETF_tag, it.nameNextToFlagEmoji()) }
+                        .sortedBy {
+                            it.second.substringAfter("\u00a0").lowercase()
+                        } // name ignoring flag emoji
+
+                val (langTagsIETF, langNames) = languagesTagName.unzip()
+
+                val selectedLanguages = getDownloadSubsLanguageTagIETF()
+                    .map { langTagsIETF.indexOf(it) }
+                    .filter { it >= 0 }
 
                 activity?.showMultiDialog(
-                    langMap.map { it.languageName },
-                    keyMap,
+                    langNames,
+                    selectedLanguages,
                     (textView as TextView).text.toString(),
                     dismissCallback
                 ) { indexList ->
-                    setKey(SUBTITLE_DOWNLOAD_KEY, indexList.map { lang639_1[it] }.toList())
+                    setKey(SUBTITLE_DOWNLOAD_KEY, indexList.map { langTagsIETF[it] }.toList())
                 }
             }
 
@@ -575,14 +783,21 @@ class SubtitlesFragment : Fragment() {
             }
 
             cancelBtt.setOnClickListener {
-                activity?.popCurrentPage()
+                if (popFragment) {
+                    activity?.popCurrentPage()
+                } else {
+                    dismiss()
+                }
             }
 
             applyBtt.setOnClickListener {
                 it.context.saveStyle(state)
                 applyStyleEvent.invoke(state)
-                it.context.fromSaveToStyle(state)
-                activity?.popCurrentPage()
+                if (popFragment) {
+                    activity?.popCurrentPage()
+                } else {
+                    dismiss()
+                }
             }
         }
     }

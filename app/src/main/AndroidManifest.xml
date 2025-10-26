@@ -2,20 +2,28 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <uses-sdk tools:overrideLibrary="go.torrServer.gojni" /> <!-- torrServer has a different api level -->
+
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" /> <!-- I dont remember, probs has to do with downloads -->
     <uses-permission android:name="android.permission.INTERNET" /> <!-- unless you only use cs3 as a player for downloaded stuff, you need this -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" /> <!-- Downloads -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" /> <!-- Downloads on low api devices -->
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" /> <!-- Plugin API -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" /> <!-- some dependency needs this -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" /> <!-- Plugin API -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" /> <!-- Used for player vertical slide -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" /> <!-- Used for app update -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" /> <!-- Used for app notifications on Android 13+ -->
     <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" /> <!-- Used for Android TV watch next -->
     <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" /> <!-- Used for updates without prompt -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" /> <!-- Used for update service -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" /> <!-- We can use this directly as CS3 is not on Play Store -->
+    <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA" />  <!-- We can use to read the tv channel list -->
+    <!-- Required for OpenInAppAction and getting arbitrary Aniyomi packages  -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
 
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" /> <!-- Required for getting arbitrary Aniyomi packages  -->
     <!-- Fixes android tv fuckery -->
     <uses-feature
         android:name="android.hardware.touchscreen"
@@ -24,20 +32,16 @@
         android:name="android.software.leanback"
         android:required="false" />
 
-    <queries>
-        <package android:name="org.videolan.vlc" />
-        <package android:name="com.instantbits.cast.webvideo" />
-        <package android:name="is.xyz.mpv" />
-    </queries>
-
     <!-- Without the large heap Exoplayer buffering gets reset due to OOM. -->
     <!--TODO https://stackoverflow.com/questions/41799732/chromecast-button-not-visible-in-android-->
     <application
         android:name=".AcraApplication"
         android:allowBackup="true"
+        android:enableOnBackInvokedCallback="true"
         android:appCategory="video"
         android:banner="@mipmap/ic_banner"
         android:fullBackupContent="@xml/backup_descriptor"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:largeHeap="true"
@@ -45,7 +49,7 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true"
-        tools:targetApi="o">
+        tools:targetApi="${target_sdk_version}">
 
         <meta-data
             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
@@ -61,7 +65,10 @@
             android:exported="true"
             android:resizeableActivity="true"
             android:screenOrientation="userLandscape"
-            android:supportsPictureInPicture="true">
+            android:supportsPictureInPicture="true"
+            android:taskAffinity="com.lagradost.cloudstream3.downloadedplayer"
+            android:launchMode="singleTask"
+            tools:ignore="DiscouragedApi">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
 
@@ -79,6 +86,25 @@
 
                 <data android:mimeType="*/*" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.OPEN_DOCUMENT" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="magnet" />
+            </intent-filter>
+            <!--<intent-filter tools:ignore="AppLinkUrlError">
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.OPEN_DOCUMENT" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:mimeType="application/x-bittorrent" />
+            </intent-filter>-->
         </activity>
         <!--
         android:launchMode="singleTask"
@@ -87,17 +113,11 @@
         -->
         <activity
             android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode"
             android:exported="true"
             android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true">
-            <intent-filter android:exported="true">
-                <action android:name="android.intent.action.MAIN" />
-
-                <category android:name="android.intent.category.LAUNCHER" />
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-            </intent-filter>
 
             <!-- cloudstreamplayer://encodedUrl?name=Dune -->
             <intent-filter>
@@ -124,7 +144,14 @@
 
                 <data android:scheme="cloudstreamrepo" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
 
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="csshare" />
+            </intent-filter>
             <!-- Allow searching with intents: cloudstreamsearch://Your%20Name -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -162,14 +189,25 @@
         </activity>
 
         <activity
-            android:name=".ui.EasterEggMonke"
-            android:exported="true" />
+            android:name=".ui.account.AccountSelectActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden"
+            android:exported="true">
+            <intent-filter android:exported="true">
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
         <receiver
             android:name=".receivers.VideoDownloadRestartReceiver"
             android:enabled="false"
-            android:exported="true">
-            <intent-filter android:exported="true">
+            android:exported="false">
+            <intent-filter android:exported="false">
                 <action android:name="restart_service" />
             </intent-filter>
         </receiver>
@@ -177,14 +215,22 @@
         <service
             android:name=".services.VideoDownloadService"
             android:enabled="true"
+            android:foregroundServiceType="dataSync"
             android:exported="false" />
+
+        <!-- Necessary for WorkManager services: https://stackoverflow.com/a/77186316 -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
         <activity
             android:name=".ui.ControllerActivity"
             android:exported="false" />
 
         <service
-            android:name=".utils.PackageInstallerService"
+            android:name=".services.PackageInstallerService"
+            android:foregroundServiceType="dataSync"
             android:exported="false" />
 
         <provider
@@ -198,5 +244,5 @@
                 android:resource="@xml/provider_paths" />
         </provider>
     </application>
-
+    
 </manifest>

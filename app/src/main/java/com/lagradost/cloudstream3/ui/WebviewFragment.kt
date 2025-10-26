@@ -8,14 +8,16 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.annotation.OptIn
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
+import androidx.media3.common.util.UnstableApi
 import androidx.navigation.fragment.findNavController
 import com.lagradost.cloudstream3.MainActivity
 import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.databinding.FragmentWebviewBinding
 import com.lagradost.cloudstream3.network.WebViewResolver
-import com.lagradost.cloudstream3.utils.AppUtils.loadRepository
+import com.lagradost.cloudstream3.utils.AppContextUtils.loadRepository
 
 
 class WebviewFragment : Fragment() {
@@ -29,6 +31,7 @@ class WebviewFragment : Fragment() {
         }
 
         binding?.webView?.webViewClient = object : WebViewClient() {
+            @OptIn(UnstableApi::class)
             override fun shouldOverrideUrlLoading(
                 view: WebView?,
                 request: WebResourceRequest?
